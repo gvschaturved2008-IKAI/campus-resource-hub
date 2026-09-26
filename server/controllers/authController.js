@@ -1,6 +1,7 @@
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
+import AuditLog from '../models/AuditLog.js';
 
 /**
  * Utility function to generate a 7-day signed JWT
@@ -237,6 +238,20 @@ export const approveCR = async (req, res) => {
     user.isApproved = true;
     await user.save();
 
+    // Record Audit Log
+    try {
+      await AuditLog.create({
+        action: 'approve_cr',
+        userId: req.user?._id || null,
+        userName: req.user?.name || 'Lecturer',
+        userRole: req.user?.role || 'lecturer',
+        details: `Approved ${user.name} (${user.department} Sem ${user.semester} Sec ${user.classSection}) as CR`,
+        timestamp: new Date(),
+      });
+    } catch (auditErr) {
+      console.error('AuditLog error in approveCR:', auditErr.message);
+    }
+
     return res.status(200).json({
       success: true,
       message: `Class Representative ${user.name} has been approved successfully.`,
@@ -271,6 +286,20 @@ export const rejectCR = async (req, res) => {
     user.role = 'student';
     user.isApproved = true;
     await user.save();
+
+    // Record Audit Log
+    try {
+      await AuditLog.create({
+        action: 'reject_cr',
+        userId: req.user?._id || null,
+        userName: req.user?.name || 'Lecturer',
+        userRole: req.user?.role || 'lecturer',
+        details: `Rejected CR application for ${user.name} (assigned to Student)`,
+        timestamp: new Date(),
+      });
+    } catch (auditErr) {
+      console.error('AuditLog error in rejectCR:', auditErr.message);
+    }
 
     return res.status(200).json({
       success: true,
