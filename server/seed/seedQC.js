@@ -18,31 +18,37 @@ const COURSES_DATA = [
     code: 'CSE-QC',
     name: 'B.Tech CSE (Quantum Computing)',
     totalSemesters: 8,
+    sections: ['A'],
   },
   {
     code: 'CSE',
     name: 'B.Tech Computer Science and Engineering',
     totalSemesters: 8,
+    sections: ['A', 'B', 'C'],
   },
   {
     code: 'AIE',
     name: 'B.Tech Artificial Intelligence Engineering',
     totalSemesters: 8,
+    sections: ['A', 'B', 'C'],
   },
   {
     code: 'AIDS',
     name: 'B.Tech Artificial Intelligence and Data Science',
     totalSemesters: 8,
+    sections: ['A'],
   },
   {
     code: 'CCE',
     name: 'B.Tech Computer and Communication Engineering',
     totalSemesters: 8,
+    sections: ['A'],
   },
   {
     code: 'ECE',
     name: 'B.Tech Electronics and Communication Engineering',
     totalSemesters: 8,
+    sections: ['A'],
   },
 ];
 

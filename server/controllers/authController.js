@@ -3,6 +3,7 @@ import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
 import Course from '../models/Course.js';
 import AuditLog from '../models/AuditLog.js';
+import { getOrCreateGroupRoom } from '../services/chatService.js';
 
 /**
  * Utility function to generate a 7-day signed JWT
@@ -29,7 +30,8 @@ const sanitizeUser = (user) => ({
   courseCode: user.course?.code || user.courseCode || '',
   courseDetails: user.course && typeof user.course === 'object' ? user.course : null,
   semester: user.semester,
-  classSection: user.classSection,
+  section: user.section || user.classSection || 'A',
+  classSection: user.section || user.classSection || 'A',
   isApproved: user.isApproved,
   createdAt: user.createdAt,
 });
@@ -41,7 +43,18 @@ const sanitizeUser = (user) => ({
  */
 export const signup = async (req, res) => {
   try {
-    const { name, email, password, role, department, course, courseCode, semester, classSection } = req.body;
+    const {
+      name,
+      email,
+      password,
+      role,
+      department,
+      course,
+      courseCode,
+      semester,
+      section,
+      classSection,
+    } = req.body;
 
     // 1. Validate required fields
     if (!name || !email || !password) {
@@ -69,15 +82,19 @@ export const signup = async (req, res) => {
       });
     }
 
-    // 3. Resolve course
+    // 3. Resolve course & section
     let resolvedCourseId = null;
     let finalCourseCode = courseCode || '';
+    let availableSections = ['A'];
 
     if (course) {
       const courseDoc = await Course.findById(course).catch(() => null);
       if (courseDoc) {
         resolvedCourseId = courseDoc._id;
         finalCourseCode = courseDoc.code;
+        if (Array.isArray(courseDoc.sections) && courseDoc.sections.length > 0) {
+          availableSections = courseDoc.sections;
+        }
       }
     }
     if (!resolvedCourseId && courseCode) {
@@ -85,8 +102,16 @@ export const signup = async (req, res) => {
       if (courseDoc) {
         resolvedCourseId = courseDoc._id;
         finalCourseCode = courseDoc.code;
+        if (Array.isArray(courseDoc.sections) && courseDoc.sections.length > 0) {
+          availableSections = courseDoc.sections;
+        }
       }
     }
+
+    const requestedSection = (section || classSection || 'A').toUpperCase().trim();
+    const finalSection = availableSections.includes(requestedSection)
+      ? requestedSection
+      : availableSections[0] || 'A';
 
     // 4. Hash password using bcrypt
     const salt = await bcrypt.genSalt(10);
@@ -107,16 +132,26 @@ export const signup = async (req, res) => {
       course: resolvedCourseId,
       courseCode: finalCourseCode,
       semester: semester ? Number(semester) : undefined,
-      classSection: classSection ? classSection.trim() : undefined,
+      section: finalSection,
+      classSection: finalSection,
       isApproved,
     });
 
-    const populatedUser = await User.findById(user._id).populate('course', 'code name totalSemesters');
+    // 7. Lazily find or create the class group chatroom and enroll user as member
+    if (resolvedCourseId) {
+      try {
+        await getOrCreateGroupRoom(resolvedCourseId, finalSection, user._id);
+      } catch (chatErr) {
+        console.error('Error auto-joining class group room on signup:', chatErr.message);
+      }
+    }
 
-    // 7. Generate 7-day JWT
+    const populatedUser = await User.findById(user._id).populate('course', 'code name totalSemesters sections');
+
+    // 8. Generate 7-day JWT
     const token = generateToken(user._id, user.role);
 
-    // 8. Return token and sanitized user profile
+    // 9. Return token and sanitized user profile
     return res.status(201).json({
       success: true,
       message:

@@ -5,12 +5,12 @@ import { useAuth } from '../context/AuthContext';
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
 const FALLBACK_COURSES = [
-  { _id: 'CSE-QC', code: 'CSE-QC', name: 'B.Tech CSE (Quantum Computing)' },
-  { _id: 'CSE', code: 'CSE', name: 'B.Tech Computer Science and Engineering' },
-  { _id: 'AIE', code: 'AIE', name: 'B.Tech Artificial Intelligence Engineering' },
-  { _id: 'AIDS', code: 'AIDS', name: 'B.Tech Artificial Intelligence and Data Science' },
-  { _id: 'CCE', code: 'CCE', name: 'B.Tech Computer and Communication Engineering' },
-  { _id: 'ECE', code: 'ECE', name: 'B.Tech Electronics and Communication Engineering' },
+  { _id: 'CSE-QC', code: 'CSE-QC', name: 'B.Tech CSE (Quantum Computing)', sections: ['A'] },
+  { _id: 'CSE', code: 'CSE', name: 'B.Tech Computer Science and Engineering', sections: ['A', 'B', 'C'] },
+  { _id: 'AIE', code: 'AIE', name: 'B.Tech Artificial Intelligence Engineering', sections: ['A', 'B', 'C'] },
+  { _id: 'AIDS', code: 'AIDS', name: 'B.Tech Artificial Intelligence and Data Science', sections: ['A'] },
+  { _id: 'CCE', code: 'CCE', name: 'B.Tech Computer and Communication Engineering', sections: ['A'] },
+  { _id: 'ECE', code: 'ECE', name: 'B.Tech Electronics and Communication Engineering', sections: ['A'] },
 ];
 
 export const Signup = () => {
@@ -23,9 +23,10 @@ export const Signup = () => {
     courseCode: 'CSE-QC',
     department: 'CSE-QC',
     semester: '1',
-    classSection: 'A',
+    section: 'A',
   });
   const [courses, setCourses] = useState(FALLBACK_COURSES);
+  const [availableSections, setAvailableSections] = useState(['A']);
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
 
@@ -39,13 +40,16 @@ export const Signup = () => {
         const data = await res.json();
         if (data.success && data.courses?.length > 0) {
           setCourses(data.courses);
-          // Default to first course if available
-          const first = data.courses.find((c) => c.code === 'CSE-QC') || data.courses[0];
+          const defaultCourse =
+            data.courses.find((c) => c.code === 'CSE-QC') || data.courses[0];
+          const sections = defaultCourse.sections?.length > 0 ? defaultCourse.sections : ['A'];
+          setAvailableSections(sections);
           setFormData((prev) => ({
             ...prev,
-            course: first._id,
-            courseCode: first.code,
-            department: first.code,
+            course: defaultCourse._id,
+            courseCode: defaultCourse.code,
+            department: defaultCourse.code,
+            section: sections[0] || 'A',
           }));
         }
       } catch (err) {
@@ -59,11 +63,14 @@ export const Signup = () => {
     const { name, value } = e.target;
     if (name === 'course') {
       const selected = courses.find((c) => c._id === value || c.code === value);
+      const sections = selected?.sections?.length > 0 ? selected.sections : ['A'];
+      setAvailableSections(sections);
       setFormData((prev) => ({
         ...prev,
         course: selected?._id || value,
         courseCode: selected?.code || value,
         department: selected?.code || prev.department,
+        section: sections.includes(prev.section) ? prev.section : sections[0] || 'A',
       }));
     } else {
       setFormData((prev) => ({ ...prev, [name]: value }));
@@ -79,6 +86,8 @@ export const Signup = () => {
       await signup({
         ...formData,
         semester: formData.semester ? Number(formData.semester) : undefined,
+        section: formData.section.toUpperCase(),
+        classSection: formData.section.toUpperCase(),
       });
       navigate('/dashboard');
     } catch (err) {
@@ -99,7 +108,7 @@ export const Signup = () => {
           </div>
           <h2 className="text-2xl font-bold tracking-tight text-white">Join Campus Resource Hub</h2>
           <p className="mt-2 text-sm text-slate-400">
-            Create an account with your academic course & semester
+            Create an account with your academic course, semester & section
           </p>
         </div>
 
@@ -220,7 +229,7 @@ export const Signup = () => {
             </select>
           </div>
 
-          {/* Academic Semester and Section */}
+          {/* Academic Semester and Section (populated from Course's sections) */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">
@@ -244,14 +253,18 @@ export const Signup = () => {
               <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">
                 Class Section
               </label>
-              <input
-                type="text"
-                name="classSection"
-                value={formData.classSection}
+              <select
+                name="section"
+                value={formData.section}
                 onChange={handleChange}
-                placeholder="e.g. A"
-                className="w-full px-3 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
-              />
+                className="w-full px-3 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm cursor-pointer font-bold"
+              >
+                {availableSections.map((sec) => (
+                  <option key={sec} value={sec}>
+                    Section {sec}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
 
@@ -263,7 +276,7 @@ export const Signup = () => {
             {loading ? (
               <>
                 <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-                <span>Creating account...</span>
+                <span>Creating account & joining class chat...</span>
               </>
             ) : (
               <span>Create Account</span>

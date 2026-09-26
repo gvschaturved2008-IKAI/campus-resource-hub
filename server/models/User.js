@@ -59,6 +59,13 @@ const userSchema = new mongoose.Schema(
       min: 1,
       max: 12,
     },
+    section: {
+      type: String,
+      required: [true, 'Section is required'],
+      default: 'A',
+      trim: true,
+      uppercase: true,
+    },
     classSection: {
       type: String,
       trim: true,
@@ -75,6 +82,7 @@ const userSchema = new mongoose.Schema(
 
 // Indexes
 userSchema.index({ email: 1 }, { unique: true });
+userSchema.index({ role: 1, course: 1, semester: 1, section: 1 });
 userSchema.index({ role: 1, course: 1, semester: 1, classSection: 1 });
 userSchema.index({ isApproved: 1 });
 

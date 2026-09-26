@@ -13,6 +13,7 @@ import { LecturerDashboard } from './pages/dashboards/LecturerDashboard';
 import { Resources } from './pages/Resources';
 import { ResourceDetail } from './pages/ResourceDetail';
 import { UploadResource } from './pages/UploadResource';
+import { Chat } from './pages/Chat';
 import { NotFound } from './pages/NotFound';
 
 function App() {
@@ -95,6 +96,24 @@ function App() {
               element={
                 <ProtectedRoute role={['lecturer', 'cr']}>
                   <UploadResource />
+                </ProtectedRoute>
+              }
+            />
+
+            {/* Real-Time Class Group & Direct Chat */}
+            <Route
+              path="/chat"
+              element={
+                <ProtectedRoute>
+                  <Chat />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/chat/:roomId"
+              element={
+                <ProtectedRoute>
+                  <Chat />
                 </ProtectedRoute>
               }
             />

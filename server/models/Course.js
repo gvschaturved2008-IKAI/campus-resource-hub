@@ -20,6 +20,10 @@ const courseSchema = new mongoose.Schema(
       min: 1,
       max: 12,
     },
+    sections: {
+      type: [String],
+      default: ['A'],
+    },
   },
   {
     timestamps: true,

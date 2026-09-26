@@ -67,9 +67,17 @@ export const Layout = () => {
             </NavLink>
 
             {isAuthenticated && (
-              <NavLink to="/dashboard" className={navLinkStyle}>
-                Dashboard
-              </NavLink>
+              <>
+                <NavLink to="/dashboard" className={navLinkStyle}>
+                  Dashboard
+                </NavLink>
+                <NavLink to="/chat" className={navLinkStyle}>
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+                    <span>Class Chat</span>
+                  </span>
+                </NavLink>
+              </>
             )}
 
             {/* Role-appropriate link: Upload only for CR/Lecturer */}
@@ -180,13 +188,22 @@ export const Layout = () => {
             </NavLink>
 
             {isAuthenticated && (
-              <NavLink
-                to="/dashboard"
-                onClick={() => setMobileMenuOpen(false)}
-                className={mobileNavLinkStyle}
-              >
-                Dashboard
-              </NavLink>
+              <>
+                <NavLink
+                  to="/dashboard"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className={mobileNavLinkStyle}
+                >
+                  Dashboard
+                </NavLink>
+                <NavLink
+                  to="/chat"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className={mobileNavLinkStyle}
+                >
+                  💬 Class & Direct Chat
+                </NavLink>
+              </>
             )}
 
             {canUpload && (
