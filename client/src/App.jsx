@@ -1,12 +1,15 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
-import { Navbar } from './components/Navbar';
+import { Layout } from './components/Layout';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { Home } from './pages/Home';
 import { Login } from './pages/Login';
 import { Signup } from './pages/Signup';
-import { Dashboard } from './pages/Dashboard';
+import { DashboardRedirect } from './pages/DashboardRedirect';
+import { StudentDashboard } from './pages/dashboards/StudentDashboard';
+import { CRDashboard } from './pages/dashboards/CRDashboard';
+import { LecturerDashboard } from './pages/dashboards/LecturerDashboard';
 import { Resources } from './pages/Resources';
 import { ResourceDetail } from './pages/ResourceDetail';
 import { UploadResource } from './pages/UploadResource';
@@ -15,47 +18,90 @@ function App() {
   return (
     <AuthProvider>
       <Router>
-        <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans antialiased">
-          <Navbar />
-          
-          <main className="flex-1">
-            <Routes>
-              {/* Public Routes */}
-              <Route path="/" element={<Home />} />
-              <Route path="/login" element={<Login />} />
-              <Route path="/signup" element={<Signup />} />
-              <Route path="/resources" element={<Resources />} />
-              <Route path="/resources/:id" element={<ResourceDetail />} />
+        <Routes>
+          {/* Public Auth Routes */}
+          <Route path="/login" element={<Login />} />
+          <Route path="/signup" element={<Signup />} />
 
-              {/* Protected Routes - Accessible to all authenticated users */}
-              <Route
-                path="/dashboard"
-                element={
-                  <ProtectedRoute>
-                    <Dashboard />
-                  </ProtectedRoute>
-                }
-              />
+          {/* Main App Layout Wrapper */}
+          <Route element={<Layout />}>
+            {/* Landing / Overview Page */}
+            <Route path="/" element={<Home />} />
 
-              {/* Protected Route - Upload allowed only for Lecturers and approved CRs */}
-              <Route
-                path="/upload"
-                element={
-                  <ProtectedRoute role={['lecturer', 'cr']}>
-                    <UploadResource />
-                  </ProtectedRoute>
-                }
-              />
+            {/* Resources Browse & Search (Accessible to all logged-in users) */}
+            <Route
+              path="/resources"
+              element={
+                <ProtectedRoute>
+                  <Resources />
+                </ProtectedRoute>
+              }
+            />
 
-              {/* Fallback route */}
-              <Route path="*" element={<Navigate to="/" replace />} />
-            </Routes>
-          </main>
+            {/* Resource Detail & Document Preview */}
+            <Route
+              path="/resources/:id"
+              element={
+                <ProtectedRoute>
+                  <ResourceDetail />
+                </ProtectedRoute>
+              }
+            />
 
-          <footer className="py-6 border-t border-slate-900 text-center text-xs text-slate-500">
-            Campus Resource Hub © {new Date().getFullYear()} • Role-Based Authentication & Academic Sharing
-          </footer>
-        </div>
+            {/* Dynamic Dashboard Redirect based on User Role */}
+            <Route
+              path="/dashboard"
+              element={
+                <ProtectedRoute>
+                  <DashboardRedirect />
+                </ProtectedRoute>
+              }
+            />
+
+            {/* Student Dashboard */}
+            <Route
+              path="/dashboard/student"
+              element={
+                <ProtectedRoute role={['student', 'cr', 'lecturer']}>
+                  <StudentDashboard />
+                </ProtectedRoute>
+              }
+            />
+
+            {/* Class Representative (CR) Dashboard */}
+            <Route
+              path="/dashboard/cr"
+              element={
+                <ProtectedRoute role={['cr', 'lecturer']}>
+                  <CRDashboard />
+                </ProtectedRoute>
+              }
+            />
+
+            {/* Lecturer / Faculty Dashboard */}
+            <Route
+              path="/dashboard/lecturer"
+              element={
+                <ProtectedRoute role={['lecturer']}>
+                  <LecturerDashboard />
+                </ProtectedRoute>
+              }
+            />
+
+            {/* Study Material Upload (Restricted to Lecturers and approved CRs) */}
+            <Route
+              path="/upload"
+              element={
+                <ProtectedRoute role={['lecturer', 'cr']}>
+                  <UploadResource />
+                </ProtectedRoute>
+              }
+            />
+
+            {/* Fallback Catch-all Route */}
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Route>
+        </Routes>
       </Router>
     </AuthProvider>
   );

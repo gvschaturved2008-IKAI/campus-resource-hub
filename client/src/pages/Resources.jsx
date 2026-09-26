@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { ResourceCard } from '../components/ResourceCard';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
 export const Resources = () => {
   const { user } = useAuth();
-  const navigate = useNavigate();
   const [resources, setResources] = useState([]);
   const [metaFilters, setMetaFilters] = useState({
     subjects: [],
@@ -78,9 +78,7 @@ export const Resources = () => {
     fetchResources();
   }, [fetchResources]);
 
-  // Handle direct download
-  const handleDownload = (e, resourceId) => {
-    e.stopPropagation();
+  const handleDownload = (resourceId) => {
     // Update local download counter optimistically
     setResources((prev) =>
       prev.map((r) =>
@@ -98,32 +96,17 @@ export const Resources = () => {
     document.body.removeChild(link);
   };
 
-  const getResourceTypeBadge = (type) => {
-    switch (type) {
-      case 'notes':
-        return 'bg-blue-500/20 text-blue-300 border-blue-500/30';
-      case 'question-paper':
-        return 'bg-purple-500/20 text-purple-300 border-purple-500/30';
-      case 'lab-manual':
-        return 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30';
-      case 'link':
-        return 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30';
-      default:
-        return 'bg-slate-500/20 text-slate-300 border-slate-500/30';
-    }
-  };
-
   const canUpload = user && (user.role === 'lecturer' || (user.role === 'cr' && user.isApproved));
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-8">
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
       {/* Header & Upload CTA */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-extrabold text-white tracking-tight">
+          <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
             Academic Resources
           </h1>
-          <p className="text-slate-400 text-sm mt-1">
+          <p className="text-slate-400 text-xs sm:text-sm mt-1">
             Search, filter, preview, and download study materials ({totalCount} items available)
           </p>
         </div>
@@ -131,7 +114,7 @@ export const Resources = () => {
         {canUpload && (
           <Link
             to="/upload"
-            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold shadow-lg shadow-indigo-600/25 transition-all cursor-pointer"
+            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs sm:text-sm font-semibold shadow-lg shadow-indigo-600/25 transition-all self-start sm:self-auto cursor-pointer"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -153,10 +136,10 @@ export const Resources = () => {
               setPage(1);
             }}
             placeholder="Search resources by title, subject, or keywords..."
-            className="w-full pl-11 pr-4 py-3 bg-slate-950 border border-slate-800 rounded-xl text-white placeholder-slate-500 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
+            className="w-full pl-10 pr-4 py-2.5 sm:py-3 bg-slate-950 border border-slate-800 rounded-xl text-white placeholder-slate-500 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
           />
           <svg
-            className="w-5 h-5 absolute left-3.5 top-3.5 text-slate-500"
+            className="w-4 h-4 sm:w-5 sm:h-5 absolute left-3.5 top-3 sm:top-3.5 text-slate-500"
             fill="none"
             stroke="currentColor"
             viewBox="0 0 24 24"
@@ -166,17 +149,19 @@ export const Resources = () => {
         </div>
 
         {/* Dynamic Filters Grid */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-3">
           {/* Subject Filter */}
           <div>
-            <label className="block text-[11px] font-semibold uppercase text-slate-400 mb-1">Subject</label>
+            <label className="block text-[10px] sm:text-[11px] font-semibold uppercase text-slate-400 mb-1">
+              Subject
+            </label>
             <select
               value={selectedSubject}
               onChange={(e) => {
                 setSelectedSubject(e.target.value);
                 setPage(1);
               }}
-              className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              className="w-full px-2.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
             >
               <option value="">All Subjects</option>
               {metaFilters.subjects.map((sub) => (
@@ -187,14 +172,16 @@ export const Resources = () => {
 
           {/* Semester Filter */}
           <div>
-            <label className="block text-[11px] font-semibold uppercase text-slate-400 mb-1">Semester</label>
+            <label className="block text-[10px] sm:text-[11px] font-semibold uppercase text-slate-400 mb-1">
+              Semester
+            </label>
             <select
               value={selectedSemester}
               onChange={(e) => {
                 setSelectedSemester(e.target.value);
                 setPage(1);
               }}
-              className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              className="w-full px-2.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
             >
               <option value="">All Semesters</option>
               {[1, 2, 3, 4, 5, 6, 7, 8].map((sem) => (
@@ -205,14 +192,16 @@ export const Resources = () => {
 
           {/* Resource Type Filter */}
           <div>
-            <label className="block text-[11px] font-semibold uppercase text-slate-400 mb-1">Type</label>
+            <label className="block text-[10px] sm:text-[11px] font-semibold uppercase text-slate-400 mb-1">
+              Type
+            </label>
             <select
               value={selectedType}
               onChange={(e) => {
                 setSelectedType(e.target.value);
                 setPage(1);
               }}
-              className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 capitalize"
+              className="w-full px-2.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 capitalize"
             >
               <option value="">All Types</option>
               <option value="notes">Notes</option>
@@ -225,14 +214,16 @@ export const Resources = () => {
 
           {/* Section Filter */}
           <div>
-            <label className="block text-[11px] font-semibold uppercase text-slate-400 mb-1">Section</label>
+            <label className="block text-[10px] sm:text-[11px] font-semibold uppercase text-slate-400 mb-1">
+              Section
+            </label>
             <select
               value={selectedSection}
               onChange={(e) => {
                 setSelectedSection(e.target.value);
                 setPage(1);
               }}
-              className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              className="w-full px-2.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
             >
               <option value="">All Sections</option>
               {metaFilters.classSections.map((sec) => (
@@ -267,10 +258,10 @@ export const Resources = () => {
       {loading ? (
         <div className="py-20 flex flex-col items-center justify-center gap-3">
           <div className="w-10 h-10 border-4 border-indigo-500/30 border-t-indigo-500 rounded-full animate-spin"></div>
-          <p className="text-slate-400 text-sm">Loading resources...</p>
+          <p className="text-slate-400 text-xs sm:text-sm">Loading resources...</p>
         </div>
       ) : error ? (
-        <div className="p-6 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-400 text-center">
+        <div className="p-6 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-400 text-center text-sm">
           {error}
         </div>
       ) : resources.length === 0 ? (
@@ -278,73 +269,19 @@ export const Resources = () => {
           <div className="w-14 h-14 mx-auto rounded-2xl bg-slate-800 text-slate-400 flex items-center justify-center text-2xl">
             📂
           </div>
-          <h3 className="text-lg font-bold text-white">No resources found</h3>
-          <p className="text-slate-400 text-sm max-w-md mx-auto">
+          <h3 className="text-base font-bold text-white">No resources found</h3>
+          <p className="text-slate-400 text-xs max-w-md mx-auto">
             Try adjusting your search query or removing filter parameters to find study materials.
           </p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
           {resources.map((item) => (
-            <div
+            <ResourceCard
               key={item._id}
-              onClick={() => navigate(`/resources/${item._id}`)}
-              className="bg-slate-900 border border-slate-800 rounded-2xl p-6 flex flex-col justify-between hover:border-indigo-500/50 hover:shadow-indigo-500/10 transition-all group shadow-lg cursor-pointer"
-            >
-              <div className="space-y-3">
-                <div className="flex items-center justify-between gap-2">
-                  <span className={`px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wider rounded-full border ${getResourceTypeBadge(item.resourceType)}`}>
-                    {item.resourceType.replace('-', ' ')}
-                  </span>
-                  <span className="text-xs font-mono text-slate-500">
-                    Sem {item.semester} {item.classSection ? `• Sec ${item.classSection}` : ''}
-                  </span>
-                </div>
-
-                <div>
-                  <h3 className="text-lg font-bold text-white group-hover:text-indigo-400 transition-colors line-clamp-1">
-                    {item.title}
-                  </h3>
-                  <div className="text-xs font-semibold text-indigo-400/90 font-mono mt-0.5">
-                    {item.subject}
-                  </div>
-                  {item.description && (
-                    <p className="text-slate-400 text-xs mt-2 line-clamp-2 leading-relaxed">
-                      {item.description}
-                    </p>
-                  )}
-                </div>
-              </div>
-
-              <div className="mt-6 pt-4 border-t border-slate-800/80 flex items-center justify-between">
-                <div className="text-xs text-slate-400">
-                  <span className="block text-slate-300 font-medium">{item.uploadedBy?.name || 'Faculty'}</span>
-                  <span className="text-[10px] text-slate-500 uppercase font-mono">{item.uploadedBy?.role}</span>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  {/* Preview Button */}
-                  <Link
-                    to={`/resources/${item._id}`}
-                    onClick={(e) => e.stopPropagation()}
-                    className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-300 hover:text-white border border-slate-700 transition-colors"
-                  >
-                    Preview
-                  </Link>
-
-                  {/* Direct Download Button */}
-                  <button
-                    onClick={(e) => handleDownload(e, item._id)}
-                    className="p-2 rounded-xl bg-indigo-600/20 hover:bg-indigo-600 text-indigo-300 hover:text-white border border-indigo-500/30 transition-all cursor-pointer"
-                    title="Download File"
-                  >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                    </svg>
-                  </button>
-                </div>
-              </div>
-            </div>
+              resource={item}
+              onDownload={() => handleDownload(item._id)}
+            />
           ))}
         </div>
       )}
