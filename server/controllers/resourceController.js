@@ -4,7 +4,7 @@ import { uploadBufferToCloudinary } from '../config/cloudinary.js';
 
 /**
  * ============================================================================
- * RESOURCE CONTROLLER (With Cloudinary File Upload & Download Tracking)
+ * RESOURCE CONTROLLER (With Cloudinary File Upload, Download Tracking & Sorting)
  * ============================================================================
  */
 
@@ -96,7 +96,7 @@ export const createResource = async (req, res) => {
 };
 
 /**
- * @desc    Get all resources with search, filtering, and pagination
+ * @desc    Get all resources with search, dynamic filtering, sorting, and pagination
  * @route   GET /api/resources
  * @access  Public / Student-accessible
  */
@@ -108,6 +108,7 @@ export const getResources = async (req, res) => {
       resourceType,
       classSection,
       search,
+      sort = 'newest',
       page = 1,
       limit = 10,
     } = req.query;
@@ -140,6 +141,18 @@ export const getResources = async (req, res) => {
       ];
     }
 
+    // Configure Sorting
+    let sortOptions = { createdAt: -1 }; // default newest
+    if (sort === 'downloads') {
+      sortOptions = { downloadCount: -1, createdAt: -1 };
+    } else if (sort === 'title-asc') {
+      sortOptions = { title: 1 };
+    } else if (sort === 'title-desc') {
+      sortOptions = { title: -1 };
+    } else if (sort === 'newest') {
+      sortOptions = { createdAt: -1 };
+    }
+
     const pageNum = Math.max(1, parseInt(page, 10) || 1);
     const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 10));
     const skip = (pageNum - 1) * limitNum;
@@ -147,7 +160,7 @@ export const getResources = async (req, res) => {
     const [resources, total] = await Promise.all([
       Resource.find(query)
         .populate('uploadedBy', 'name email role department')
-        .sort({ createdAt: -1 })
+        .sort(sortOptions)
         .skip(skip)
         .limit(limitNum)
         .lean(),
@@ -286,7 +299,6 @@ export const downloadResource = async (req, res) => {
     const filename = resource.originalFilename || `${resource.title.replace(/\s+/g, '_')}.${resource.fileType || 'pdf'}`;
     const safeFilename = encodeURIComponent(filename);
 
-    // If request asks for JSON payload (API callers / client AJAX), return metadata
     if (req.headers.accept?.includes('application/json') || req.query.format === 'json') {
       return res.status(200).json({
         success: true,
@@ -296,10 +308,7 @@ export const downloadResource = async (req, res) => {
       });
     }
 
-    // Set Content-Disposition header for direct browser download
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"; filename*=UTF-8''${safeFilename}`);
-    
-    // Redirect browser to the secure file URL (Cloudinary delivers attachment)
     return res.redirect(resource.fileUrl);
   } catch (error) {
     console.error('Download Resource Error:', error);
