@@ -7,6 +7,8 @@ import { Home } from './pages/Home';
 import { Login } from './pages/Login';
 import { Signup } from './pages/Signup';
 import { Dashboard } from './pages/Dashboard';
+import { Resources } from './pages/Resources';
+import { UploadResource } from './pages/UploadResource';
 
 function App() {
   return (
@@ -21,8 +23,9 @@ function App() {
               <Route path="/" element={<Home />} />
               <Route path="/login" element={<Login />} />
               <Route path="/signup" element={<Signup />} />
+              <Route path="/resources" element={<Resources />} />
 
-              {/* Protected Routes - Accessible to all authenticated roles */}
+              {/* Protected Routes - Accessible to all authenticated users */}
               <Route
                 path="/dashboard"
                 element={
@@ -32,28 +35,12 @@ function App() {
                 }
               />
 
-              {/* Example of Role-Restricted Route: Lecturers & Approved CRs only */}
+              {/* Protected Route - Upload allowed only for Lecturers and approved CRs */}
               <Route
-                path="/upload-demo"
+                path="/upload"
                 element={
                   <ProtectedRoute role={['lecturer', 'cr']}>
-                    <div className="max-w-4xl mx-auto p-8 text-center">
-                      <h2 className="text-2xl font-bold text-white">Upload Materials (Faculty & CR)</h2>
-                      <p className="text-slate-400 mt-2">This route demonstrates RBAC restriction for lecturers & approved CRs.</p>
-                    </div>
-                  </ProtectedRoute>
-                }
-              />
-
-              {/* Example of Role-Restricted Route: Lecturers only */}
-              <Route
-                path="/faculty-only"
-                element={
-                  <ProtectedRoute role={['lecturer']}>
-                    <div className="max-w-4xl mx-auto p-8 text-center">
-                      <h2 className="text-2xl font-bold text-white">Faculty Approval Dashboard</h2>
-                      <p className="text-slate-400 mt-2">This route demonstrates RBAC restriction for lecturers only.</p>
-                    </div>
+                    <UploadResource />
                   </ProtectedRoute>
                 }
               />
