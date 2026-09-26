@@ -1,12 +1,27 @@
 import mongoose from 'mongoose';
 import Resource from '../models/Resource.js';
+import AuditLog from '../models/AuditLog.js';
 import { uploadBufferToCloudinary } from '../config/cloudinary.js';
 
 /**
- * ============================================================================
- * RESOURCE CONTROLLER (With Cloudinary File Upload, Download Tracking & Sorting)
- * ============================================================================
+ * Helper to asynchronously log audit events without blocking response
  */
+const logAudit = async ({ action, resourceId, resourceTitle, user, details }) => {
+  try {
+    await AuditLog.create({
+      action,
+      resourceId: resourceId || null,
+      resourceTitle: resourceTitle || '',
+      userId: user?._id || null,
+      userName: user?.name || 'Guest / Student',
+      userRole: user?.role || 'student',
+      details: details || '',
+      timestamp: new Date(),
+    });
+  } catch (err) {
+    console.error('AuditLog Error:', err.message);
+  }
+};
 
 /**
  * @desc    Create a new study resource (Uploads buffer to Cloudinary & saves metadata)
@@ -81,6 +96,15 @@ export const createResource = async (req, res) => {
       'name email role department'
     );
 
+    // Record Audit Log
+    logAudit({
+      action: 'upload',
+      resourceId: resource._id,
+      resourceTitle: resource.title,
+      user: req.user,
+      details: `Uploaded ${resourceType} for ${subject} (Sem ${semester})`,
+    });
+
     return res.status(201).json({
       success: true,
       message: 'Resource published and uploaded to Cloudinary successfully.',
@@ -142,7 +166,7 @@ export const getResources = async (req, res) => {
     }
 
     // Configure Sorting
-    let sortOptions = { createdAt: -1 }; // default newest
+    let sortOptions = { createdAt: -1 };
     if (sort === 'downloads') {
       sortOptions = { downloadCount: -1, createdAt: -1 };
     } else if (sort === 'title-asc') {
@@ -226,6 +250,59 @@ export const getFilterMeta = async (req, res) => {
 };
 
 /**
+ * @desc    Get "Most downloaded this week" analytics widget data
+ * @route   GET /api/resources/analytics/top-weekly
+ * @access  Public / Private
+ */
+export const getTopWeeklyDownloads = async (req, res) => {
+  try {
+    const topResources = await Resource.find({})
+      .populate('uploadedBy', 'name email role department')
+      .sort({ downloadCount: -1, createdAt: -1 })
+      .limit(5)
+      .lean();
+
+    return res.status(200).json({
+      success: true,
+      count: topResources.length,
+      topResources,
+    });
+  } catch (error) {
+    console.error('Top Weekly Downloads Error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Server error calculating top downloads.',
+    });
+  }
+};
+
+/**
+ * @desc    Get last 10 audit activity logs for Lecturer feed
+ * @route   GET /api/resources/analytics/audit-logs
+ * @access  Private (Lecturers only)
+ */
+export const getActivityLogs = async (req, res) => {
+  try {
+    const logs = await AuditLog.find({})
+      .sort({ timestamp: -1 })
+      .limit(10)
+      .lean();
+
+    return res.status(200).json({
+      success: true,
+      count: logs.length,
+      logs,
+    });
+  } catch (error) {
+    console.error('Get Activity Logs Error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Server error retrieving activity logs.',
+    });
+  }
+};
+
+/**
  * @desc    Get single resource by ID
  * @route   GET /api/resources/:id
  * @access  Public
@@ -267,7 +344,7 @@ export const getResourceById = async (req, res) => {
 };
 
 /**
- * @desc    Download resource with incremented counter & Content-Disposition header
+ * @desc    Download resource with incremented counter, audit log & Content-Disposition header
  * @route   GET /api/resources/:id/download
  * @access  Public
  */
@@ -295,6 +372,15 @@ export const downloadResource = async (req, res) => {
         message: 'Resource not found.',
       });
     }
+
+    // Record Audit Log for Download
+    logAudit({
+      action: 'download',
+      resourceId: resource._id,
+      resourceTitle: resource.title,
+      user: req.user || null,
+      details: `Downloaded ${resource.title} (${resource.subject})`,
+    });
 
     const filename = resource.originalFilename || `${resource.title.replace(/\s+/g, '_')}.${resource.fileType || 'pdf'}`;
     const safeFilename = encodeURIComponent(filename);
@@ -381,6 +467,14 @@ export const updateResource = async (req, res) => {
       'name email role department'
     );
 
+    logAudit({
+      action: 'update',
+      resourceId: resource._id,
+      resourceTitle: resource.title,
+      user: req.user,
+      details: `Updated details for ${resource.title}`,
+    });
+
     return res.status(200).json({
       success: true,
       message: 'Resource updated successfully.',
@@ -430,7 +524,16 @@ export const deleteResource = async (req, res) => {
       });
     }
 
+    const resourceTitle = resource.title;
     await Resource.findByIdAndDelete(id);
+
+    logAudit({
+      action: 'delete',
+      resourceId: id,
+      resourceTitle,
+      user: req.user,
+      details: `Deleted ${resourceTitle}`,
+    });
 
     return res.status(200).json({
       success: true,
@@ -446,12 +549,57 @@ export const deleteResource = async (req, res) => {
   }
 };
 
+/**
+ * @desc    Bulk delete multiple resources
+ * @route   POST /api/resources/bulk-delete
+ * @access  Private (Lecturers only)
+ */
+export const bulkDeleteResources = async (req, res) => {
+  try {
+    const { ids } = req.body;
+
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide an array of resource IDs to delete.',
+      });
+    }
+
+    // Fetch titles for audit logging
+    const resourcesToDelete = await Resource.find({ _id: { $in: ids } }).select('title');
+    const titles = resourcesToDelete.map((r) => r.title).join(', ');
+
+    const result = await Resource.deleteMany({ _id: { $in: ids } });
+
+    logAudit({
+      action: 'bulk_delete',
+      user: req.user,
+      details: `Bulk deleted ${result.deletedCount} resources: [${titles}]`,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: `Successfully deleted ${result.deletedCount} resources.`,
+      deletedCount: result.deletedCount,
+    });
+  } catch (error) {
+    console.error('Bulk Delete Error:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Server error during bulk delete.',
+    });
+  }
+};
+
 export default {
   createResource,
   getResources,
   getFilterMeta,
+  getTopWeeklyDownloads,
+  getActivityLogs,
   getResourceById,
   downloadResource,
   updateResource,
   deleteResource,
+  bulkDeleteResources,
 };

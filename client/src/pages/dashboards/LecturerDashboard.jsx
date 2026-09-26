@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import { ResourceCard } from '../../components/ResourceCard';
+import { ResourceCard, getResourceTypeConfig } from '../../components/ResourceCard';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
@@ -18,11 +18,17 @@ export const LecturerDashboard = () => {
   const { user, token } = useAuth();
   const [allResources, setAllResources] = useState([]);
   const [pendingCRs, setPendingCRs] = useState([]);
+  const [topWeekly, setTopWeekly] = useState([]);
+  const [activityLogs, setActivityLogs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [crLoading, setCrLoading] = useState(true);
   const [activeChip, setActiveChip] = useState('all');
   const [selectedSection, setSelectedSection] = useState('all');
   const [search, setSearch] = useState('');
+
+  // Bulk Selection State
+  const [selectedResourceIds, setSelectedResourceIds] = useState([]);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
 
   // Upload Modal State
   const [showUploadModal, setShowUploadModal] = useState(false);
@@ -46,7 +52,7 @@ export const LecturerDashboard = () => {
   // CR Action Message
   const [crActionMessage, setCrActionMessage] = useState(null);
 
-  // 1. Fetch all resources across department classes
+  // 1. Fetch all course resources
   const fetchAllResources = useCallback(async () => {
     setLoading(true);
     try {
@@ -62,7 +68,7 @@ export const LecturerDashboard = () => {
     }
   }, []);
 
-  // 2. Fetch pending CR requests from GET /api/auth/pending-crs
+  // 2. Fetch pending CR requests
   const fetchPendingCRs = useCallback(async () => {
     setCrLoading(true);
     try {
@@ -82,10 +88,42 @@ export const LecturerDashboard = () => {
     }
   }, [token]);
 
+  // 3. Fetch Top Weekly Downloads Widget
+  const fetchTopWeekly = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/resources/analytics/top-weekly`);
+      const data = await res.json();
+      if (data.success) {
+        setTopWeekly(data.topResources || []);
+      }
+    } catch (err) {
+      console.error('Failed to load top weekly downloads:', err);
+    }
+  }, []);
+
+  // 4. Fetch Activity Logs Feed (Last 10 Events)
+  const fetchActivityLogs = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/resources/analytics/audit-logs`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+      const data = await res.json();
+      if (data.success) {
+        setActivityLogs(data.logs || []);
+      }
+    } catch (err) {
+      console.error('Failed to load activity logs:', err);
+    }
+  }, [token]);
+
   useEffect(() => {
     fetchAllResources();
     fetchPendingCRs();
-  }, [fetchAllResources, fetchPendingCRs]);
+    fetchTopWeekly();
+    fetchActivityLogs();
+  }, [fetchAllResources, fetchPendingCRs, fetchTopWeekly, fetchActivityLogs]);
 
   // Approve CR Handler
   const handleApproveCR = async (userId, crName) => {
@@ -100,6 +138,7 @@ export const LecturerDashboard = () => {
       if (data.success) {
         setCrActionMessage({ type: 'success', text: `Approved ${crName} as Class Representative.` });
         setPendingCRs((prev) => prev.filter((cr) => cr._id !== userId));
+        fetchActivityLogs();
         setTimeout(() => setCrActionMessage(null), 3500);
       } else {
         alert(data.message || 'Failed to approve CR.');
@@ -111,7 +150,7 @@ export const LecturerDashboard = () => {
 
   // Reject CR Handler
   const handleRejectCR = async (userId, crName) => {
-    if (!window.confirm(`Reject CR application for ${crName}? Their account role will be set to Student.`)) return;
+    if (!window.confirm(`Reject CR application for ${crName}? Account role will be set to Student.`)) return;
     try {
       const res = await fetch(`${API_BASE_URL}/api/auth/reject-cr/${userId}`, {
         method: 'PATCH',
@@ -123,6 +162,7 @@ export const LecturerDashboard = () => {
       if (data.success) {
         setCrActionMessage({ type: 'info', text: `Rejected CR application for ${crName}. Set to Student.` });
         setPendingCRs((prev) => prev.filter((cr) => cr._id !== userId));
+        fetchActivityLogs();
         setTimeout(() => setCrActionMessage(null), 3500);
       } else {
         alert(data.message || 'Failed to reject CR.');
@@ -179,6 +219,8 @@ export const LecturerDashboard = () => {
       });
       setUploadFile(null);
       fetchAllResources();
+      fetchTopWeekly();
+      fetchActivityLogs();
 
       setTimeout(() => {
         setShowUploadModal(false);
@@ -191,7 +233,7 @@ export const LecturerDashboard = () => {
     }
   };
 
-  // Delete Resource Handler (Lecturers can delete any material)
+  // Delete Single Resource Handler
   const handleDeleteResource = async (resourceId) => {
     if (!window.confirm('Delete this course material from the system?')) return;
     try {
@@ -204,6 +246,9 @@ export const LecturerDashboard = () => {
       const data = await res.json();
       if (data.success) {
         setAllResources((prev) => prev.filter((r) => r._id !== resourceId));
+        setSelectedResourceIds((prev) => prev.filter((id) => id !== resourceId));
+        fetchTopWeekly();
+        fetchActivityLogs();
       } else {
         alert(data.message || 'Failed to delete resource.');
       }
@@ -212,7 +257,64 @@ export const LecturerDashboard = () => {
     }
   };
 
-  // Edit Resource Handler (Lecturers can edit any material)
+  // Bulk Delete Handler
+  const handleBulkDelete = async () => {
+    if (selectedResourceIds.length === 0) return;
+    if (
+      !window.confirm(
+        `Are you sure you want to permanently delete all ${selectedResourceIds.length} selected resources?`
+      )
+    ) {
+      return;
+    }
+
+    setBulkDeleting(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/resources/bulk-delete`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ ids: selectedResourceIds }),
+      });
+
+      const data = await res.json();
+      if (data.success) {
+        setAllResources((prev) => prev.filter((r) => !selectedResourceIds.includes(r._id)));
+        setSelectedResourceIds([]);
+        fetchTopWeekly();
+        fetchActivityLogs();
+      } else {
+        alert(data.message || 'Failed to perform bulk delete.');
+      }
+    } catch (err) {
+      alert(err.message || 'Error during bulk deletion.');
+    } finally {
+      setBulkDeleting(false);
+    }
+  };
+
+  // Toggle selection for all filtered items
+  const handleToggleSelectAll = () => {
+    const currentFilteredIds = filteredResources.map((r) => r._id);
+    const allSelected = currentFilteredIds.every((id) => selectedResourceIds.includes(id));
+
+    if (allSelected) {
+      setSelectedResourceIds((prev) => prev.filter((id) => !currentFilteredIds.includes(id)));
+    } else {
+      setSelectedResourceIds((prev) => [...new Set([...prev, ...currentFilteredIds])]);
+    }
+  };
+
+  // Toggle selection for single item
+  const handleToggleSelectItem = (id) => {
+    setSelectedResourceIds((prev) =>
+      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
+    );
+  };
+
+  // Edit Resource Handler
   const handleEditSubmit = async (e) => {
     e.preventDefault();
     if (!editingResource) return;
@@ -240,6 +342,7 @@ export const LecturerDashboard = () => {
           prev.map((r) => (r._id === editingResource._id ? data.resource : r))
         );
         setEditingResource(null);
+        fetchActivityLogs();
       } else {
         alert(data.message || 'Failed to update resource.');
       }
@@ -250,7 +353,7 @@ export const LecturerDashboard = () => {
     }
   };
 
-  // Calculate statistics across all class sections
+  // Statistics
   const totalResources = allResources.length;
   const totalDownloads = allResources.reduce((acc, curr) => acc + (curr.downloadCount || 0), 0);
   const distinctSubjects = [...new Set(allResources.map((r) => r.subject).filter(Boolean))];
@@ -266,6 +369,29 @@ export const LecturerDashboard = () => {
       item.subject.toLowerCase().includes(search.toLowerCase());
     return matchesChip && matchesSection && matchesSearch;
   });
+
+  const allFilteredSelected =
+    filteredResources.length > 0 &&
+    filteredResources.every((r) => selectedResourceIds.includes(r._id));
+
+  // Action badge renderer for Activity Log
+  const getActionBadge = (action) => {
+    switch (action) {
+      case 'upload':
+        return <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-500/20 text-blue-300 border border-blue-500/30">UPLOAD</span>;
+      case 'download':
+        return <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">DOWNLOAD</span>;
+      case 'delete':
+      case 'bulk_delete':
+        return <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-red-500/20 text-red-300 border border-red-500/30">DELETE</span>;
+      case 'approve_cr':
+        return <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-500/20 text-purple-300 border border-purple-500/30">APPROVE CR</span>;
+      case 'reject_cr':
+        return <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">REJECT CR</span>;
+      default:
+        return <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-800 text-slate-300">ACTION</span>;
+    }
+  };
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
@@ -285,7 +411,7 @@ export const LecturerDashboard = () => {
               Professor {user?.name}
             </h1>
             <p className="text-slate-400 text-xs sm:text-sm">
-              Publish verified course materials, approve incoming CRs, and manage resources across all sections you teach.
+              Publish course notes, manage bulk deletions, review weekly stats, and authorize Class Representatives.
             </p>
           </div>
 
@@ -311,18 +437,143 @@ export const LecturerDashboard = () => {
             <span className="text-xl font-bold text-emerald-400 font-mono">{totalDownloads}</span>
           </div>
           <div className="bg-slate-950/60 p-3.5 rounded-2xl border border-slate-800/60">
-            <span className="text-[10px] font-semibold uppercase text-slate-500 block">Active Subjects</span>
-            <span className="text-xl font-bold text-indigo-400 font-mono">{distinctSubjects.length} courses</span>
+            <span className="text-[10px] font-semibold uppercase text-slate-500 block">Active Courses</span>
+            <span className="text-xl font-bold text-indigo-400 font-mono">{distinctSubjects.length} subjects</span>
           </div>
           <div className="bg-slate-950/60 p-3.5 rounded-2xl border border-slate-800/60">
-            <span className="text-[10px] font-semibold uppercase text-slate-500 block">Pending CR Requests</span>
+            <span className="text-[10px] font-semibold uppercase text-slate-500 block">Pending CR Queue</span>
             <span className="text-xl font-bold text-amber-400 font-mono">{pendingCRs.length} pending</span>
           </div>
         </div>
       </div>
 
-      {/* Panel 1: Pending Class Representative Approvals */}
-      <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-7 shadow-xl space-y-4">
+      {/* Analytics Grid: Most Downloaded This Week Widget + Live Activity Feed */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* 1. "Most Downloaded This Week" Widget */}
+        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
+          <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+            <div className="flex items-center gap-2">
+              <span className="p-2 rounded-xl bg-amber-500/10 text-amber-400">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+                </svg>
+              </span>
+              <div>
+                <h2 className="text-base font-bold text-white">Most Downloaded This Week</h2>
+                <p className="text-[11px] text-slate-400">High-demand academic files ranked by student downloads</p>
+              </div>
+            </div>
+            <span className="text-xs font-mono text-emerald-400 font-semibold">Live Rank</span>
+          </div>
+
+          {topWeekly.length === 0 ? (
+            <div className="py-8 text-center text-xs text-slate-500">No downloads recorded yet.</div>
+          ) : (
+            <div className="space-y-2.5">
+              {topWeekly.map((item, index) => {
+                const config = getResourceTypeConfig(item.resourceType);
+                return (
+                  <div
+                    key={item._id}
+                    className="p-3 bg-slate-950/60 hover:bg-slate-950 border border-slate-800/70 rounded-2xl flex items-center justify-between gap-3 transition-colors"
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <span
+                        className={`w-6 h-6 flex-shrink-0 rounded-lg flex items-center justify-center text-xs font-bold font-mono ${
+                          index === 0
+                            ? 'bg-amber-500 text-slate-950 shadow-md shadow-amber-500/30'
+                            : index === 1
+                            ? 'bg-slate-300 text-slate-950'
+                            : index === 2
+                            ? 'bg-amber-700 text-white'
+                            : 'bg-slate-800 text-slate-400'
+                        }`}
+                      >
+                        #{index + 1}
+                      </span>
+                      <div className="min-w-0">
+                        <Link
+                          to={`/resources/${item._id}`}
+                          className="text-xs font-semibold text-white hover:text-indigo-400 truncate block"
+                        >
+                          {item.title}
+                        </Link>
+                        <div className="flex items-center gap-2 text-[10px] text-slate-400 font-mono mt-0.5">
+                          <span className="text-indigo-300">{item.subject}</span>
+                          <span>• Sem {item.semester}</span>
+                          <span className={`px-1.5 py-0.2 rounded ${config.badgeClass}`}>{item.resourceType}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="text-right flex-shrink-0">
+                      <span className="text-xs font-bold text-emerald-400 font-mono">
+                        {item.downloadCount || 0}
+                      </span>
+                      <span className="block text-[10px] text-slate-500">downloads</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* 2. System Activity Feed (Last 10 Events from AuditLog) */}
+        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
+          <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+            <div className="flex items-center gap-2">
+              <span className="p-2 rounded-xl bg-indigo-500/10 text-indigo-400">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </span>
+              <div>
+                <h2 className="text-base font-bold text-white">System Activity Feed</h2>
+                <p className="text-[11px] text-slate-400">Live timeline of uploads, downloads, and CR actions</p>
+              </div>
+            </div>
+            <button
+              onClick={fetchActivityLogs}
+              className="text-[11px] font-semibold text-indigo-400 hover:text-indigo-300 cursor-pointer"
+            >
+              Refresh
+            </button>
+          </div>
+
+          {activityLogs.length === 0 ? (
+            <div className="py-8 text-center text-xs text-slate-500">No activity recorded yet.</div>
+          ) : (
+            <div className="space-y-2.5 max-h-[310px] overflow-y-auto pr-1">
+              {activityLogs.map((log) => (
+                <div
+                  key={log._id}
+                  className="p-2.5 bg-slate-950/50 border border-slate-800/60 rounded-xl flex items-center justify-between gap-2 text-xs"
+                >
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    {getActionBadge(log.action)}
+                    <div className="min-w-0">
+                      <span className="text-slate-200 font-medium truncate block">
+                        {log.details || log.resourceTitle || log.action}
+                      </span>
+                      <span className="text-[10px] text-slate-500">
+                        by <strong className="text-slate-400">{log.userName}</strong> ({log.userRole})
+                      </span>
+                    </div>
+                  </div>
+
+                  <span className="text-[10px] font-mono text-slate-500 whitespace-nowrap flex-shrink-0">
+                    {new Date(log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Panel 2: Pending Class Representative Approvals */}
+      <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-lg font-bold text-white flex items-center gap-2">
@@ -354,7 +605,7 @@ export const LecturerDashboard = () => {
           <div className="py-8 text-center text-xs text-slate-400">Loading pending applications...</div>
         ) : pendingCRs.length === 0 ? (
           <div className="p-6 text-center rounded-2xl bg-slate-950/50 border border-slate-800/80 text-slate-400 text-xs">
-            ✨ No pending CR applications at this time. All class reps are up to date.
+            ✨ No pending CR applications. All class reps are up to date.
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -399,32 +650,62 @@ export const LecturerDashboard = () => {
         )}
       </div>
 
-      {/* Section 2: Manage All Course Resources Across Sections */}
+      {/* Panel 3: Course Resource Catalog with Multi-Select Bulk Actions */}
       <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
             <h2 className="text-lg font-bold text-white flex items-center gap-2">
-              <span>📚 Manage All Department & Class Resources</span>
+              <span>📚 Course Materials Table & Bulk Operations</span>
               <span className="text-xs text-slate-400 font-mono">({allResources.length})</span>
             </h2>
-            <p className="text-xs text-slate-400">As a lecturer, you can view, edit, or remove any resource in the catalog.</p>
+            <p className="text-xs text-slate-400">Select multiple resources to perform bulk deletions or moderate files.</p>
           </div>
 
-          {/* Section Filter Picker */}
           <div className="flex items-center gap-2">
             <span className="text-xs text-slate-400">Filter Section:</span>
             <select
               value={selectedSection}
               onChange={(e) => setSelectedSection(e.target.value)}
-              className="px-3 py-1.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:ring-2 focus:ring-indigo-500"
+              className="px-3 py-1.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:ring-2 focus:ring-indigo-500 cursor-pointer"
             >
-              <option value="all">All Sections (A, B, C...)</option>
+              <option value="all">All Sections</option>
               {distinctSections.map((sec) => (
                 <option key={sec} value={sec}>Section {sec}</option>
               ))}
             </select>
           </div>
         </div>
+
+        {/* 3. Bulk Action Bar (Visible when 1+ resources are checked) */}
+        {selectedResourceIds.length > 0 && (
+          <div className="p-3.5 rounded-2xl bg-indigo-950/60 border border-indigo-500/40 flex flex-col sm:flex-row items-center justify-between gap-3 animate-fadeIn">
+            <div className="flex items-center gap-2 text-xs text-indigo-200">
+              <span className="px-2 py-0.5 rounded-lg bg-indigo-600 text-white font-mono font-bold">
+                {selectedResourceIds.length}
+              </span>
+              <span>resource(s) selected for bulk moderation</span>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setSelectedResourceIds([])}
+                className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold"
+              >
+                Deselect All
+              </button>
+              <button
+                onClick={handleBulkDelete}
+                disabled={bulkDeleting}
+                className="px-4 py-1.5 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-semibold shadow-lg shadow-red-600/30 flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+                <span>{bulkDeleting ? 'Deleting...' : `Delete Selected (${selectedResourceIds.length})`}</span>
+              </button>
+            </div>
+          </div>
+        )}
 
         {allResources.length === 0 ? (
           <div className="p-8 text-center text-xs text-slate-500">
@@ -435,6 +716,15 @@ export const LecturerDashboard = () => {
             <table className="w-full text-left text-xs border-collapse">
               <thead>
                 <tr className="border-b border-slate-800 text-slate-400 uppercase text-[10px] tracking-wider">
+                  <th className="py-3 px-3 w-10">
+                    <input
+                      type="checkbox"
+                      checked={allFilteredSelected}
+                      onChange={handleToggleSelectAll}
+                      className="rounded bg-slate-950 border-slate-700 text-indigo-600 focus:ring-0 cursor-pointer"
+                      title="Select all filtered items"
+                    />
+                  </th>
                   <th className="py-3 px-3">Title & Subject</th>
                   <th className="py-3 px-3">Sem / Sec</th>
                   <th className="py-3 px-3">Type</th>
@@ -444,63 +734,79 @@ export const LecturerDashboard = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60">
-                {filteredResources.slice(0, 15).map((item) => (
-                  <tr key={item._id} className="hover:bg-slate-950/40 transition-colors">
-                    <td className="py-3 px-3 max-w-[200px]">
-                      <Link
-                        to={`/resources/${item._id}`}
-                        className="font-semibold text-white hover:text-indigo-400 truncate block"
-                      >
-                        {item.title}
-                      </Link>
-                      <span className="text-[11px] text-indigo-400/80 font-mono block">
-                        {item.subject}
-                      </span>
-                    </td>
-                    <td className="py-3 px-3 text-slate-300 font-mono">
-                      Sem {item.semester} {item.classSection ? `• Sec ${item.classSection}` : ''}
-                    </td>
-                    <td className="py-3 px-3">
-                      <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase bg-slate-800 text-slate-300">
-                        {item.resourceType}
-                      </span>
-                    </td>
-                    <td className="py-3 px-3 text-slate-300">
-                      <div>{item.uploadedBy?.name || 'Faculty'}</div>
-                      <span className="text-[10px] text-slate-500 uppercase">{item.uploadedBy?.role}</span>
-                    </td>
-                    <td className="py-3 px-3 font-mono text-emerald-400">
-                      {item.downloadCount || 0}
-                    </td>
-                    <td className="py-3 px-3 text-right space-x-2">
-                      <Link
-                        to={`/resources/${item._id}`}
-                        className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold"
-                      >
-                        Preview
-                      </Link>
-                      <button
-                        onClick={() => setEditingResource(item)}
-                        className="px-2.5 py-1 rounded-lg bg-indigo-600/20 hover:bg-indigo-600 text-indigo-300 hover:text-white font-semibold cursor-pointer"
-                      >
-                        Edit
-                      </button>
-                      <button
-                        onClick={() => handleDeleteResource(item._id)}
-                        className="px-2.5 py-1 rounded-lg bg-red-500/10 hover:bg-red-500 text-red-400 hover:text-white font-semibold cursor-pointer"
-                      >
-                        Delete
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                {filteredResources.slice(0, 20).map((item) => {
+                  const isChecked = selectedResourceIds.includes(item._id);
+                  return (
+                    <tr
+                      key={item._id}
+                      className={`transition-colors ${
+                        isChecked ? 'bg-indigo-950/30' : 'hover:bg-slate-950/40'
+                      }`}
+                    >
+                      <td className="py-3 px-3">
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={() => handleToggleSelectItem(item._id)}
+                          className="rounded bg-slate-950 border-slate-700 text-indigo-600 focus:ring-0 cursor-pointer"
+                        />
+                      </td>
+                      <td className="py-3 px-3 max-w-[200px]">
+                        <Link
+                          to={`/resources/${item._id}`}
+                          className="font-semibold text-white hover:text-indigo-400 truncate block"
+                        >
+                          {item.title}
+                        </Link>
+                        <span className="text-[11px] text-indigo-400/80 font-mono block">
+                          {item.subject}
+                        </span>
+                      </td>
+                      <td className="py-3 px-3 text-slate-300 font-mono">
+                        Sem {item.semester} {item.classSection ? `• Sec ${item.classSection}` : ''}
+                      </td>
+                      <td className="py-3 px-3">
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase bg-slate-800 text-slate-300">
+                          {item.resourceType}
+                        </span>
+                      </td>
+                      <td className="py-3 px-3 text-slate-300">
+                        <div>{item.uploadedBy?.name || 'Faculty'}</div>
+                        <span className="text-[10px] text-slate-500 uppercase">{item.uploadedBy?.role}</span>
+                      </td>
+                      <td className="py-3 px-3 font-mono text-emerald-400">
+                        {item.downloadCount || 0}
+                      </td>
+                      <td className="py-3 px-3 text-right space-x-2">
+                        <Link
+                          to={`/resources/${item._id}`}
+                          className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold"
+                        >
+                          Preview
+                        </Link>
+                        <button
+                          onClick={() => setEditingResource(item)}
+                          className="px-2.5 py-1 rounded-lg bg-indigo-600/20 hover:bg-indigo-600 text-indigo-300 hover:text-white font-semibold cursor-pointer"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          onClick={() => handleDeleteResource(item._id)}
+                          className="px-2.5 py-1 rounded-lg bg-red-500/10 hover:bg-red-500 text-red-400 hover:text-white font-semibold cursor-pointer"
+                        >
+                          Delete
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
         )}
       </div>
 
-      {/* Section 3: Visual Cards Grid with Chips */}
+      {/* Visual Cards Grid */}
       <div className="space-y-4">
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
           <div className="flex items-center gap-2 overflow-x-auto pb-1.5 sm:pb-0 scrollbar-none">
@@ -563,7 +869,7 @@ export const LecturerDashboard = () => {
             <div className="flex items-center justify-between border-b border-slate-800 pb-4">
               <div>
                 <h3 className="text-lg font-bold text-white">Publish Course Material</h3>
-                <p className="text-xs text-slate-400">Upload notes, question papers, or syllabus materials</p>
+                <p className="text-xs text-slate-400">Upload notes, question papers, or syllabus materials (≤20MB)</p>
               </div>
               <button
                 onClick={() => setShowUploadModal(false)}

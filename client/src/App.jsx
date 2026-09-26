@@ -1,5 +1,5 @@
 import React from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
 import { Layout } from './components/Layout';
 import { ProtectedRoute } from './components/ProtectedRoute';
@@ -13,6 +13,7 @@ import { LecturerDashboard } from './pages/dashboards/LecturerDashboard';
 import { Resources } from './pages/Resources';
 import { ResourceDetail } from './pages/ResourceDetail';
 import { UploadResource } from './pages/UploadResource';
+import { NotFound } from './pages/NotFound';
 
 function App() {
   return (
@@ -98,8 +99,8 @@ function App() {
               }
             />
 
-            {/* Fallback Catch-all Route */}
-            <Route path="*" element={<Navigate to="/" replace />} />
+            {/* 404 Not Found Route */}
+            <Route path="*" element={<NotFound />} />
           </Route>
         </Routes>
       </Router>
