@@ -1,63 +1,75 @@
-import { useState } from 'react'
+import React from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { AuthProvider } from './context/AuthContext';
+import { Navbar } from './components/Navbar';
+import { ProtectedRoute } from './components/ProtectedRoute';
+import { Home } from './pages/Home';
+import { Login } from './pages/Login';
+import { Signup } from './pages/Signup';
+import { Dashboard } from './pages/Dashboard';
 
 function App() {
-  const [count, setCount] = useState(0)
-
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col items-center justify-center p-6">
-      <div className="max-w-md w-full bg-slate-900 border border-slate-800 rounded-2xl p-8 shadow-2xl text-center space-y-6">
-        <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-indigo-600/20 text-indigo-400 border border-indigo-500/30">
-          <svg
-            className="w-8 h-8"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-            xmlns="http://www.w3.org/2000/svg"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"
-            />
-          </svg>
-        </div>
+    <AuthProvider>
+      <Router>
+        <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans antialiased">
+          <Navbar />
+          
+          <main className="flex-1">
+            <Routes>
+              {/* Public Routes */}
+              <Route path="/" element={<Home />} />
+              <Route path="/login" element={<Login />} />
+              <Route path="/signup" element={<Signup />} />
 
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight text-white">
-            Campus Resource Hub
-          </h1>
-          <p className="text-slate-400 mt-2 text-sm">
-            React + Vite + Tailwind CSS Skeleton
-          </p>
-        </div>
+              {/* Protected Routes - Accessible to all authenticated roles */}
+              <Route
+                path="/dashboard"
+                element={
+                  <ProtectedRoute>
+                    <Dashboard />
+                  </ProtectedRoute>
+                }
+              />
 
-        <div className="p-4 rounded-xl bg-slate-950/60 border border-slate-800/80 text-left space-y-2 text-xs font-mono text-slate-300">
-          <div className="flex items-center gap-2">
-            <span className="h-2 w-2 rounded-full bg-emerald-500"></span>
-            <span>Client: React 19 + Vite</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="h-2 w-2 rounded-full bg-indigo-500"></span>
-            <span>Styles: Tailwind CSS configured</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="h-2 w-2 rounded-full bg-cyan-500"></span>
-            <span>Server: Node.js + Express ready</span>
-          </div>
-        </div>
+              {/* Example of Role-Restricted Route: Lecturers & Approved CRs only */}
+              <Route
+                path="/upload-demo"
+                element={
+                  <ProtectedRoute role={['lecturer', 'cr']}>
+                    <div className="max-w-4xl mx-auto p-8 text-center">
+                      <h2 className="text-2xl font-bold text-white">Upload Materials (Faculty & CR)</h2>
+                      <p className="text-slate-400 mt-2">This route demonstrates RBAC restriction for lecturers & approved CRs.</p>
+                    </div>
+                  </ProtectedRoute>
+                }
+              />
 
-        <div className="pt-2">
-          <button
-            onClick={() => setCount((c) => c + 1)}
-            className="w-full py-2.5 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 active:scale-[0.98] transition-all duration-200 text-white font-medium text-sm shadow-lg shadow-indigo-600/25 cursor-pointer"
-          >
-            Counter Test: {count}
-          </button>
+              {/* Example of Role-Restricted Route: Lecturers only */}
+              <Route
+                path="/faculty-only"
+                element={
+                  <ProtectedRoute role={['lecturer']}>
+                    <div className="max-w-4xl mx-auto p-8 text-center">
+                      <h2 className="text-2xl font-bold text-white">Faculty Approval Dashboard</h2>
+                      <p className="text-slate-400 mt-2">This route demonstrates RBAC restriction for lecturers only.</p>
+                    </div>
+                  </ProtectedRoute>
+                }
+              />
+
+              {/* Fallback route */}
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </main>
+
+          <footer className="py-6 border-t border-slate-900 text-center text-xs text-slate-500">
+            Campus Resource Hub © {new Date().getFullYear()} • Role-Based Authentication & Academic Sharing
+          </footer>
         </div>
-      </div>
-    </div>
-  )
+      </Router>
+    </AuthProvider>
+  );
 }
 
-export default App
+export default App;

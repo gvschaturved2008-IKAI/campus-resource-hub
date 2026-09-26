@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import bcrypt from 'bcryptjs';
 
 const userSchema = new mongoose.Schema(
   {
@@ -28,6 +29,17 @@ const userSchema = new mongoose.Schema(
       },
       default: 'student',
     },
+    /**
+     * isApproved flag:
+     * - 'cr' accounts require lecturer approval before full CR privileges (defaults to false)
+     * - 'student' and 'lecturer' accounts are auto-approved (defaults to true)
+     */
+    isApproved: {
+      type: Boolean,
+      default: function () {
+        return this.role !== 'cr';
+      },
+    },
     department: {
       type: String,
       trim: true,
@@ -47,13 +59,21 @@ const userSchema = new mongoose.Schema(
     },
   },
   {
-    timestamps: false, // Explicitly using createdAt as requested
+    timestamps: false,
   }
 );
 
 // Indexes
 userSchema.index({ email: 1 }, { unique: true });
 userSchema.index({ role: 1, department: 1, semester: 1, classSection: 1 });
+userSchema.index({ isApproved: 1 });
+
+/**
+ * Instance method to compare plain password with stored bcrypt passwordHash
+ */
+userSchema.methods.matchPassword = async function (enteredPassword) {
+  return await bcrypt.compare(enteredPassword, this.passwordHash);
+};
 
 const User = mongoose.model('User', userSchema);
 
