@@ -40,6 +40,22 @@ const resourceSchema = new mongoose.Schema(
       type: String,
       trim: true,
     },
+    originalFilename: {
+      type: String,
+      trim: true,
+    },
+    fileMimeType: {
+      type: String,
+      trim: true,
+    },
+    fileSize: {
+      type: Number,
+      default: 0,
+    },
+    cloudinaryPublicId: {
+      type: String,
+      trim: true,
+    },
     uploadedBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',

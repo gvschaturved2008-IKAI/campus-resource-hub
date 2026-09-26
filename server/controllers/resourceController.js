@@ -1,14 +1,15 @@
 import mongoose from 'mongoose';
 import Resource from '../models/Resource.js';
+import { uploadBufferToCloudinary } from '../config/cloudinary.js';
 
 /**
  * ============================================================================
- * RESOURCE CONTROLLER
+ * RESOURCE CONTROLLER (With Cloudinary File Upload & Download Tracking)
  * ============================================================================
  */
 
 /**
- * @desc    Create a new study resource (Notes, Question Papers, Lab Manuals, etc.)
+ * @desc    Create a new study resource (Uploads buffer to Cloudinary & saves metadata)
  * @route   POST /api/resources
  * @access  Private (Lecturers & approved CRs only)
  */
@@ -21,21 +22,43 @@ export const createResource = async (req, res) => {
       semester,
       resourceType,
       classSection,
-      fileUrl,
-      fileType,
+      fileUrl: customUrl,
     } = req.body;
 
-    // Stub fileUrl and fileType until Cloudinary file upload pipeline is hooked in next phase
-    const resolvedFileUrl =
-      fileUrl ||
-      (req.file
-        ? `https://storage.campusresourcehub.edu/uploads/${Date.now()}_${req.file.originalname}`
-        : `https://sample-files.campusresourcehub.edu/${subject.toLowerCase().replace(/\s+/g, '-')}-${resourceType}.pdf`);
+    let finalFileUrl = customUrl;
+    let originalFilename = '';
+    let fileMimeType = '';
+    let fileSize = 0;
+    let cloudinaryPublicId = '';
+    let fileType = 'pdf';
 
-    const resolvedFileType =
-      fileType ||
-      (req.file ? req.file.mimetype.split('/')[1] || req.file.mimetype : 'pdf');
+    // 1. Process uploaded file via Cloudinary stream upload
+    if (req.file) {
+      originalFilename = req.file.originalname;
+      fileMimeType = req.file.mimetype;
+      fileSize = req.file.size;
+      fileType = originalFilename.split('.').pop()?.toLowerCase() || 'pdf';
 
+      const uploadResult = await uploadBufferToCloudinary(req.file.buffer, {
+        originalFilename: req.file.originalname,
+        folder: 'campus-resource-hub',
+      });
+
+      finalFileUrl = uploadResult.secure_url;
+      cloudinaryPublicId = uploadResult.public_id;
+    } else if (customUrl) {
+      finalFileUrl = customUrl.trim();
+      originalFilename = title.trim();
+      fileType = resourceType === 'link' ? 'link' : 'web';
+      fileMimeType = 'text/html';
+    } else {
+      return res.status(400).json({
+        success: false,
+        message: 'Please attach a document file (PDF, DOCX, PPTX, or Image) or provide a resource link.',
+      });
+    }
+
+    // 2. Persist Resource document in MongoDB
     const resource = await Resource.create({
       title: title.trim(),
       description: description ? description.trim() : '',
@@ -43,8 +66,12 @@ export const createResource = async (req, res) => {
       semester: Number(semester),
       resourceType,
       classSection: classSection ? classSection.trim() : undefined,
-      fileUrl: resolvedFileUrl,
-      fileType: resolvedFileType,
+      fileUrl: finalFileUrl,
+      fileType,
+      originalFilename,
+      fileMimeType,
+      fileSize,
+      cloudinaryPublicId,
       uploadedBy: req.user._id,
       downloadCount: 0,
     });
@@ -56,14 +83,14 @@ export const createResource = async (req, res) => {
 
     return res.status(201).json({
       success: true,
-      message: 'Resource published successfully.',
+      message: 'Resource published and uploaded to Cloudinary successfully.',
       resource: populatedResource,
     });
   } catch (error) {
     console.error('Create Resource Error:', error);
     return res.status(500).json({
       success: false,
-      message: error.message || 'Server error creating resource.',
+      message: error.message || 'Server error creating and uploading resource.',
     });
   }
 };
@@ -87,42 +114,36 @@ export const getResources = async (req, res) => {
 
     const query = {};
 
-    // 1. Filter by subject (case-insensitive substring match)
     if (subject) {
       query.subject = { $regex: subject, $options: 'i' };
     }
 
-    // 2. Filter by semester
     if (semester) {
       query.semester = Number(semester);
     }
 
-    // 3. Filter by resourceType enum ('notes', 'question-paper', 'lab-manual', 'link', 'other')
     if (resourceType) {
       query.resourceType = resourceType;
     }
 
-    // 4. Filter by classSection
     if (classSection) {
       query.classSection = { $regex: `^${classSection}$`, $options: 'i' };
     }
 
-    // 5. Search query matching title, description, or subject
     if (search && search.trim()) {
       const searchRegex = { $regex: search.trim(), $options: 'i' };
       query.$or = [
         { title: searchRegex },
         { description: searchRegex },
         { subject: searchRegex },
+        { originalFilename: searchRegex },
       ];
     }
 
-    // Pagination calculations
     const pageNum = Math.max(1, parseInt(page, 10) || 1);
     const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 10));
     const skip = (pageNum - 1) * limitNum;
 
-    // Fetch resources sorted by latest first
     const [resources, total] = await Promise.all([
       Resource.find(query)
         .populate('uploadedBy', 'name email role department')
@@ -153,7 +174,7 @@ export const getResources = async (req, res) => {
 };
 
 /**
- * @desc    Get dynamic filter metadata (distinct subjects, semesters, resourceTypes, sections)
+ * @desc    Get dynamic filter metadata
  * @route   GET /api/resources/meta/filters
  * @access  Public
  */
@@ -166,7 +187,6 @@ export const getFilterMeta = async (req, res) => {
       Resource.distinct('classSection'),
     ]);
 
-    // Format & sort clean lists
     const sortedSubjects = subjects.filter(Boolean).sort((a, b) => a.localeCompare(b));
     const sortedSemesters = semesters
       .filter((s) => s !== null && s !== undefined)
@@ -234,11 +254,11 @@ export const getResourceById = async (req, res) => {
 };
 
 /**
- * @desc    Increment resource download counter
- * @route   POST /api/resources/:id/download
+ * @desc    Download resource with incremented counter & Content-Disposition header
+ * @route   GET /api/resources/:id/download
  * @access  Public
  */
-export const trackDownload = async (req, res) => {
+export const downloadResource = async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -249,11 +269,12 @@ export const trackDownload = async (req, res) => {
       });
     }
 
+    // Atomically increment downloadCount
     const resource = await Resource.findByIdAndUpdate(
       id,
       { $inc: { downloadCount: 1 } },
       { new: true }
-    ).select('downloadCount title fileUrl');
+    );
 
     if (!resource) {
       return res.status(404).json({
@@ -262,17 +283,29 @@ export const trackDownload = async (req, res) => {
       });
     }
 
-    return res.status(200).json({
-      success: true,
-      message: 'Download recorded.',
-      downloadCount: resource.downloadCount,
-      fileUrl: resource.fileUrl,
-    });
+    const filename = resource.originalFilename || `${resource.title.replace(/\s+/g, '_')}.${resource.fileType || 'pdf'}`;
+    const safeFilename = encodeURIComponent(filename);
+
+    // If request asks for JSON payload (API callers / client AJAX), return metadata
+    if (req.headers.accept?.includes('application/json') || req.query.format === 'json') {
+      return res.status(200).json({
+        success: true,
+        downloadCount: resource.downloadCount,
+        fileUrl: resource.fileUrl,
+        filename,
+      });
+    }
+
+    // Set Content-Disposition header for direct browser download
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"; filename*=UTF-8''${safeFilename}`);
+    
+    // Redirect browser to the secure file URL (Cloudinary delivers attachment)
+    return res.redirect(resource.fileUrl);
   } catch (error) {
-    console.error('Track Download Error:', error);
+    console.error('Download Resource Error:', error);
     return res.status(500).json({
       success: false,
-      message: 'Server error recording download.',
+      message: error.message || 'Server error processing file download.',
     });
   }
 };
@@ -302,18 +335,16 @@ export const updateResource = async (req, res) => {
       });
     }
 
-    // Permission check: User must be the uploader OR a lecturer
     const isUploader = resource.uploadedBy.toString() === req.user._id.toString();
     const isLecturer = req.user.role === 'lecturer';
 
     if (!isUploader && !isLecturer) {
       return res.status(403).json({
         success: false,
-        message: 'Forbidden: You are not authorized to update this resource. Only the uploader or a lecturer can edit it.',
+        message: 'Forbidden: You are not authorized to update this resource.',
       });
     }
 
-    // Extract updateable fields
     const {
       title,
       description,
@@ -380,14 +411,13 @@ export const deleteResource = async (req, res) => {
       });
     }
 
-    // Permission check: User must be the uploader OR a lecturer
     const isUploader = resource.uploadedBy.toString() === req.user._id.toString();
     const isLecturer = req.user.role === 'lecturer';
 
     if (!isUploader && !isLecturer) {
       return res.status(403).json({
         success: false,
-        message: 'Forbidden: You are not authorized to delete this resource. Only the uploader or a lecturer can delete it.',
+        message: 'Forbidden: You are not authorized to delete this resource.',
       });
     }
 
@@ -412,7 +442,7 @@ export default {
   getResources,
   getFilterMeta,
   getResourceById,
-  trackDownload,
+  downloadResource,
   updateResource,
   deleteResource,
 };

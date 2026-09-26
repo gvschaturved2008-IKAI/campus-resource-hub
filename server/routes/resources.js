@@ -4,12 +4,12 @@ import {
   getResources,
   getFilterMeta,
   getResourceById,
-  trackDownload,
+  downloadResource,
   updateResource,
   deleteResource,
 } from '../controllers/resourceController.js';
 import { protect, requireRole } from '../middleware/auth.js';
-import upload from '../middleware/upload.js';
+import { handleSingleUpload } from '../middleware/upload.js';
 import {
   validateCreateResource,
   validateUpdateResource,
@@ -29,18 +29,19 @@ router.get('/', getResources);
 // GET /api/resources/:id - Retrieve details of a single resource
 router.get('/:id', getResourceById);
 
-// POST /api/resources/:id/download - Track download count for a resource
-router.post('/:id/download', trackDownload);
+// GET /api/resources/:id/download - Increment download count & download file with Content-Disposition header
+router.get('/:id/download', downloadResource);
+router.post('/:id/download', downloadResource);
 
 /**
  * Protected Endpoints
  */
-// POST /api/resources - Create resource (restricted to lecturers and approved CRs)
+// POST /api/resources - Upload document to Cloudinary & create resource (restricted to lecturers and approved CRs)
 router.post(
   '/',
   protect,
   requireRole('lecturer', 'cr'),
-  upload.single('file'),
+  handleSingleUpload('file'),
   validateCreateResource,
   createResource
 );

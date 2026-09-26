@@ -3,6 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+const MAX_FILE_SIZE_BYTES = 20 * 1024 * 1024; // 20 MB
+
+const ALLOWED_EXTENSIONS = ['.pdf', '.docx', '.doc', '.pptx', '.ppt', '.jpg', '.jpeg', '.png', '.webp', '.txt'];
 
 export const UploadResource = () => {
   const { token, user } = useAuth();
@@ -15,6 +18,7 @@ export const UploadResource = () => {
     semester: '1',
     resourceType: 'notes',
     classSection: '',
+    fileUrl: '',
   });
   const [file, setFile] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -27,8 +31,32 @@ export const UploadResource = () => {
   };
 
   const handleFileChange = (e) => {
+    setErrorMessage('');
     if (e.target.files && e.target.files[0]) {
-      setFile(e.target.files[0]);
+      const selectedFile = e.target.files[0];
+
+      // 1. Validate File Size (<= 20MB)
+      if (selectedFile.size > MAX_FILE_SIZE_BYTES) {
+        setErrorMessage(
+          `File size (${(selectedFile.size / (1024 * 1024)).toFixed(1)} MB) exceeds the maximum allowed limit of 20MB.`
+        );
+        e.target.value = '';
+        setFile(null);
+        return;
+      }
+
+      // 2. Validate Extension
+      const fileExt = '.' + selectedFile.name.split('.').pop().toLowerCase();
+      if (!ALLOWED_EXTENSIONS.includes(fileExt)) {
+        setErrorMessage(
+          `Unsupported file format (${fileExt}). Please upload a PDF, DOCX, PPTX, or Image file.`
+        );
+        e.target.value = '';
+        setFile(null);
+        return;
+      }
+
+      setFile(selectedFile);
     }
   };
 
@@ -36,17 +64,24 @@ export const UploadResource = () => {
     e.preventDefault();
     setErrorMessage('');
     setSuccessMessage('');
+
+    // Ensure either a file or a web link is provided
+    if (!file && !formData.fileUrl.trim()) {
+      setErrorMessage('Please attach a document file (PDF, DOCX, PPTX, or Image) or provide a reference link.');
+      return;
+    }
+
     setLoading(true);
 
     try {
-      // Use FormData for multipart/form-data upload support
       const data = new FormData();
-      data.append('title', formData.title);
-      data.append('description', formData.description);
-      data.append('subject', formData.subject);
+      data.append('title', formData.title.trim());
+      data.append('description', formData.description.trim());
+      data.append('subject', formData.subject.trim());
       data.append('semester', formData.semester);
       data.append('resourceType', formData.resourceType);
-      if (formData.classSection) data.append('classSection', formData.classSection);
+      if (formData.classSection.trim()) data.append('classSection', formData.classSection.trim());
+      if (formData.fileUrl.trim()) data.append('fileUrl', formData.fileUrl.trim());
       if (file) data.append('file', file);
 
       const res = await fetch(`${API_BASE_URL}/api/resources`, {
@@ -60,15 +95,15 @@ export const UploadResource = () => {
       const result = await res.json();
 
       if (!res.ok || !result.success) {
-        throw new Error(result.message || 'Failed to upload resource.');
+        throw new Error(result.message || 'Failed to upload and publish resource.');
       }
 
-      setSuccessMessage('Resource published successfully!');
+      setSuccessMessage('Resource uploaded to Cloudinary and published successfully!');
       setTimeout(() => {
-        navigate('/resources');
+        navigate(`/resources/${result.resource._id}`);
       }, 1200);
     } catch (err) {
-      setErrorMessage(err.message || 'An error occurred while uploading.');
+      setErrorMessage(err.message || 'An unexpected error occurred during upload.');
     } finally {
       setLoading(false);
     }
@@ -79,30 +114,36 @@ export const UploadResource = () => {
       <div className="bg-slate-900 border border-slate-800 rounded-3xl p-8 sm:p-10 shadow-2xl space-y-6">
         <div>
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-xs font-semibold uppercase tracking-wider mb-2">
-            <span>Role: {user?.role?.toUpperCase()}</span>
+            <span>Uploader: {user?.role?.toUpperCase()}</span>
           </div>
           <h1 className="text-2xl sm:text-3xl font-bold text-white tracking-tight">
-            Publish Study Resource
+            Publish Study Material
           </h1>
           <p className="text-slate-400 text-sm mt-1">
-            Upload lecture notes, question papers, lab manuals, or syllabus links for students.
+            Upload PDF notes, previous question papers, lab manuals, or documents (Up to 20MB).
           </p>
         </div>
 
         {errorMessage && (
-          <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
-            {errorMessage}
+          <div className="p-4 rounded-2xl bg-red-500/10 border border-red-500/30 text-red-400 text-sm flex items-start gap-3">
+            <svg className="w-5 h-5 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <span>{errorMessage}</span>
           </div>
         )}
 
         {successMessage && (
-          <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-sm">
-            {successMessage}
+          <div className="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-sm flex items-start gap-3">
+            <svg className="w-5 h-5 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+            </svg>
+            <span>{successMessage}</span>
           </div>
         )}
 
         <form onSubmit={handleSubmit} className="space-y-5">
-          {/* Resource Title */}
+          {/* Title */}
           <div>
             <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">
               Resource Title *
@@ -113,12 +154,12 @@ export const UploadResource = () => {
               name="title"
               value={formData.title}
               onChange={handleChange}
-              placeholder="e.g. Unit 3: Operating System Memory Management Notes"
+              placeholder="e.g. Unit 4: Distributed Database Management System Notes"
               className="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-800 text-white placeholder-slate-500 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
             />
           </div>
 
-          {/* Subject & Semester Grid */}
+          {/* Subject & Semester */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">
@@ -130,7 +171,7 @@ export const UploadResource = () => {
                 name="subject"
                 value={formData.subject}
                 onChange={handleChange}
-                placeholder="e.g. Operating Systems"
+                placeholder="e.g. Database Management Systems"
                 className="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-800 text-white placeholder-slate-500 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
               />
             </div>
@@ -164,10 +205,10 @@ export const UploadResource = () => {
                 onChange={handleChange}
                 className="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-800 text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 capitalize"
               >
-                <option value="notes">Notes</option>
+                <option value="notes">Lecture Notes</option>
                 <option value="question-paper">Previous Question Paper</option>
                 <option value="lab-manual">Lab Manual</option>
-                <option value="link">Reference Link / Doc</option>
+                <option value="link">Online Reference Link</option>
                 <option value="other">Other Material</option>
               </select>
             </div>
@@ -181,7 +222,7 @@ export const UploadResource = () => {
                 name="classSection"
                 value={formData.classSection}
                 onChange={handleChange}
-                placeholder="e.g. A or CSE-1"
+                placeholder="e.g. A"
                 className="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-800 text-white placeholder-slate-500 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
               />
             </div>
@@ -190,43 +231,65 @@ export const UploadResource = () => {
           {/* Description */}
           <div>
             <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">
-              Description / Instructions
+              Description / Notes
             </label>
             <textarea
               name="description"
               rows={3}
               value={formData.description}
               onChange={handleChange}
-              placeholder="Brief summary of what's covered in this file..."
+              placeholder="Provide context or syllabus unit details for students..."
               className="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-800 text-white placeholder-slate-500 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
             />
           </div>
 
-          {/* File Attachment */}
+          {/* File Upload Zone */}
           <div>
             <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">
-              Document / File
+              Attach Document (Max 20MB)
             </label>
-            <div className="p-4 rounded-xl bg-slate-950 border border-dashed border-slate-800 text-center hover:border-slate-700 transition-colors">
+            <div className="p-6 rounded-2xl bg-slate-950 border-2 border-dashed border-slate-800 hover:border-indigo-500/50 transition-colors text-center">
               <input
                 type="file"
-                id="file-upload"
+                id="file-upload-input"
+                accept=".pdf,.docx,.doc,.pptx,.ppt,.jpg,.jpeg,.png,.webp,.txt"
                 onChange={handleFileChange}
                 className="hidden"
               />
               <label
-                htmlFor="file-upload"
+                htmlFor="file-upload-input"
                 className="cursor-pointer flex flex-col items-center gap-2 text-slate-400 hover:text-white"
               >
-                <svg className="w-8 h-8 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-                </svg>
-                <span className="text-xs font-medium">
-                  {file ? `Selected: ${file.name}` : 'Click to browse PDF, Word, PPT, or ZIP document'}
+                <div className="w-12 h-12 rounded-2xl bg-indigo-600/10 text-indigo-400 flex items-center justify-center">
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                  </svg>
+                </div>
+                <span className="text-sm font-semibold text-white">
+                  {file ? file.name : 'Click or drop file to attach'}
                 </span>
-                <span className="text-[10px] text-slate-500">Max size: 50MB</span>
+                <span className="text-xs text-slate-500">
+                  {file
+                    ? `Size: ${(file.size / (1024 * 1024)).toFixed(2)} MB • Ready to upload`
+                    : 'PDF, Word (DOCX), PowerPoint (PPTX), or Images (PNG/JPG)'}
+                </span>
               </label>
             </div>
+          </div>
+
+          {/* Or Alternative URL for Links */}
+          <div>
+            <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">
+              Or Reference Web URL (If not uploading file)
+            </label>
+            <input
+              type="url"
+              name="fileUrl"
+              value={formData.fileUrl}
+              onChange={handleChange}
+              placeholder="https://drive.google.com/... or https://..."
+              className="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-800 text-white placeholder-slate-500 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
           </div>
 
           {/* Submit CTA */}
@@ -238,10 +301,10 @@ export const UploadResource = () => {
             {loading ? (
               <>
                 <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-                <span>Publishing resource...</span>
+                <span>Uploading to Cloudinary & Publishing...</span>
               </>
             ) : (
-              <span>Publish Resource</span>
+              <span>Upload & Publish Resource</span>
             )}
           </button>
         </form>

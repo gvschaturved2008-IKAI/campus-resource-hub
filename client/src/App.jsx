@@ -8,6 +8,7 @@ import { Login } from './pages/Login';
 import { Signup } from './pages/Signup';
 import { Dashboard } from './pages/Dashboard';
 import { Resources } from './pages/Resources';
+import { ResourceDetail } from './pages/ResourceDetail';
 import { UploadResource } from './pages/UploadResource';
 
 function App() {
@@ -24,6 +25,7 @@ function App() {
               <Route path="/login" element={<Login />} />
               <Route path="/signup" element={<Signup />} />
               <Route path="/resources" element={<Resources />} />
+              <Route path="/resources/:id" element={<ResourceDetail />} />
 
               {/* Protected Routes - Accessible to all authenticated users */}
               <Route
