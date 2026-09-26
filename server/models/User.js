@@ -44,6 +44,16 @@ const userSchema = new mongoose.Schema(
       type: String,
       trim: true,
     },
+    course: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Course',
+      default: null,
+    },
+    courseCode: {
+      type: String,
+      trim: true,
+      default: '',
+    },
     semester: {
       type: Number,
       min: 1,
@@ -65,7 +75,7 @@ const userSchema = new mongoose.Schema(
 
 // Indexes
 userSchema.index({ email: 1 }, { unique: true });
-userSchema.index({ role: 1, department: 1, semester: 1, classSection: 1 });
+userSchema.index({ role: 1, course: 1, semester: 1, classSection: 1 });
 userSchema.index({ isApproved: 1 });
 
 /**

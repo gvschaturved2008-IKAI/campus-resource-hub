@@ -1,6 +1,17 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+
+const FALLBACK_COURSES = [
+  { _id: 'CSE-QC', code: 'CSE-QC', name: 'B.Tech CSE (Quantum Computing)' },
+  { _id: 'CSE', code: 'CSE', name: 'B.Tech Computer Science and Engineering' },
+  { _id: 'AIE', code: 'AIE', name: 'B.Tech Artificial Intelligence Engineering' },
+  { _id: 'AIDS', code: 'AIDS', name: 'B.Tech Artificial Intelligence and Data Science' },
+  { _id: 'CCE', code: 'CCE', name: 'B.Tech Computer and Communication Engineering' },
+  { _id: 'ECE', code: 'ECE', name: 'B.Tech Electronics and Communication Engineering' },
+];
 
 export const Signup = () => {
   const [formData, setFormData] = useState({
@@ -8,19 +19,55 @@ export const Signup = () => {
     email: '',
     password: '',
     role: 'student',
-    department: '',
+    course: 'CSE-QC',
+    courseCode: 'CSE-QC',
+    department: 'CSE-QC',
     semester: '1',
-    classSection: '',
+    classSection: 'A',
   });
+  const [courses, setCourses] = useState(FALLBACK_COURSES);
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
 
   const { signup } = useAuth();
   const navigate = useNavigate();
 
+  useEffect(() => {
+    const fetchCourses = async () => {
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/courses`);
+        const data = await res.json();
+        if (data.success && data.courses?.length > 0) {
+          setCourses(data.courses);
+          // Default to first course if available
+          const first = data.courses.find((c) => c.code === 'CSE-QC') || data.courses[0];
+          setFormData((prev) => ({
+            ...prev,
+            course: first._id,
+            courseCode: first.code,
+            department: first.code,
+          }));
+        }
+      } catch (err) {
+        console.error('Failed to load courses on signup:', err);
+      }
+    };
+    fetchCourses();
+  }, []);
+
   const handleChange = (e) => {
     const { name, value } = e.target;
-    setFormData((prev) => ({ ...prev, [name]: value }));
+    if (name === 'course') {
+      const selected = courses.find((c) => c._id === value || c.code === value);
+      setFormData((prev) => ({
+        ...prev,
+        course: selected?._id || value,
+        courseCode: selected?.code || value,
+        department: selected?.code || prev.department,
+      }));
+    } else {
+      setFormData((prev) => ({ ...prev, [name]: value }));
+    }
   };
 
   const handleSubmit = async (e) => {
@@ -52,7 +99,7 @@ export const Signup = () => {
           </div>
           <h2 className="text-2xl font-bold tracking-tight text-white">Join Campus Resource Hub</h2>
           <p className="mt-2 text-sm text-slate-400">
-            Create an account to discover and share study materials
+            Create an account with your academic course & semester
           </p>
         </div>
 
@@ -154,31 +201,36 @@ export const Signup = () => {
             />
           </div>
 
-          {/* Academic Details */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div>
-              <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">
-                Department
-              </label>
-              <input
-                type="text"
-                name="department"
-                value={formData.department}
-                onChange={handleChange}
-                placeholder="e.g. CSE"
-                className="w-full px-3 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
-              />
-            </div>
+          {/* Course / Branch Selection */}
+          <div>
+            <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">
+              {formData.role === 'lecturer' ? 'Primary Department / Course' : 'Degree Course / Branch'}
+            </label>
+            <select
+              name="course"
+              value={formData.course}
+              onChange={handleChange}
+              className="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-800 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm cursor-pointer"
+            >
+              {courses.map((c) => (
+                <option key={c._id || c.code} value={c._id || c.code}>
+                  [{c.code}] {c.name}
+                </option>
+              ))}
+            </select>
+          </div>
 
+          {/* Academic Semester and Section */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">
-                Semester
+                Current Semester
               </label>
               <select
                 name="semester"
                 value={formData.semester}
                 onChange={handleChange}
-                className="w-full px-3 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
+                className="w-full px-3 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm cursor-pointer"
               >
                 {[1, 2, 3, 4, 5, 6, 7, 8].map((s) => (
                   <option key={s} value={s}>
@@ -190,7 +242,7 @@ export const Signup = () => {
 
             <div>
               <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">
-                Section
+                Class Section
               </label>
               <input
                 type="text"

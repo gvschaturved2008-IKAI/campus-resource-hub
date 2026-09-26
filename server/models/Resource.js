@@ -12,16 +12,24 @@ const resourceSchema = new mongoose.Schema(
       trim: true,
       default: '',
     },
-    subject: {
-      type: String,
-      required: [true, 'Subject is required'],
-      trim: true,
+    course: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Course',
+      required: [true, 'Course reference is required'],
+      index: true,
     },
     semester: {
       type: Number,
       required: [true, 'Semester is required'],
       min: 1,
       max: 12,
+      index: true,
+    },
+    subject: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Subject',
+      default: null,
+      index: true,
     },
     resourceType: {
       type: String,
@@ -31,6 +39,19 @@ const resourceSchema = new mongoose.Schema(
         message: '{VALUE} is not a valid resource type',
       },
     },
+    examType: {
+      type: String,
+      enum: {
+        values: ['mid-sem', 'end-sem', null],
+        message: '{VALUE} is not a valid exam type',
+      },
+      default: null,
+    },
+    academicYear: {
+      type: String,
+      trim: true,
+      default: '',
+    },
     fileUrl: {
       type: String,
       required: [true, 'File URL or link is required'],
@@ -39,14 +60,17 @@ const resourceSchema = new mongoose.Schema(
     fileType: {
       type: String,
       trim: true,
+      default: 'pdf',
     },
     originalFilename: {
       type: String,
       trim: true,
+      default: '',
     },
     fileMimeType: {
       type: String,
       trim: true,
+      default: 'application/pdf',
     },
     fileSize: {
       type: Number,
@@ -55,15 +79,18 @@ const resourceSchema = new mongoose.Schema(
     cloudinaryPublicId: {
       type: String,
       trim: true,
+      default: '',
     },
     uploadedBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
       required: [true, 'Uploader reference is required'],
+      index: true,
     },
     classSection: {
       type: String,
       trim: true,
+      default: '',
     },
     downloadCount: {
       type: Number,
@@ -80,11 +107,12 @@ const resourceSchema = new mongoose.Schema(
   }
 );
 
-// Indexes for high performance querying & filtering
-resourceSchema.index({ subject: 1, semester: 1, resourceType: 1 });
+// Compound and lookup indexes
+resourceSchema.index({ course: 1, semester: 1, subject: 1, resourceType: 1 });
+resourceSchema.index({ course: 1, semester: 1, examType: 1, academicYear: 1 });
+resourceSchema.index({ resourceType: 1, createdAt: -1 });
 resourceSchema.index({ semester: 1, classSection: 1 });
-resourceSchema.index({ uploadedBy: 1 });
-resourceSchema.index({ createdAt: -1 });
+resourceSchema.index({ downloadCount: -1, createdAt: -1 });
 
 const Resource = mongoose.model('Resource', resourceSchema);
 

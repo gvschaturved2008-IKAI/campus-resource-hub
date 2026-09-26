@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
@@ -7,23 +7,98 @@ const MAX_FILE_SIZE_BYTES = 20 * 1024 * 1024; // 20 MB
 
 const ALLOWED_EXTENSIONS = ['.pdf', '.docx', '.doc', '.pptx', '.ppt', '.jpg', '.jpeg', '.png', '.webp', '.txt'];
 
+const FALLBACK_COURSES = [
+  { _id: 'CSE-QC', code: 'CSE-QC', name: 'B.Tech CSE (Quantum Computing)' },
+  { _id: 'CSE', code: 'CSE', name: 'B.Tech Computer Science and Engineering' },
+  { _id: 'AIE', code: 'AIE', name: 'B.Tech Artificial Intelligence Engineering' },
+  { _id: 'AIDS', code: 'AIDS', name: 'B.Tech Artificial Intelligence and Data Science' },
+  { _id: 'CCE', code: 'CCE', name: 'B.Tech Computer and Communication Engineering' },
+  { _id: 'ECE', code: 'ECE', name: 'B.Tech Electronics and Communication Engineering' },
+];
+
+const ACADEMIC_YEARS = ['2025-26', '2024-25', '2023-24', '2022-23', '2021-22'];
+
 export const UploadResource = () => {
   const { token, user } = useAuth();
   const navigate = useNavigate();
 
+  const [courses, setCourses] = useState(FALLBACK_COURSES);
+  const [subjects, setSubjects] = useState([]);
+  const [subjectsLoading, setSubjectsLoading] = useState(false);
+
   const [formData, setFormData] = useState({
     title: '',
     description: '',
-    subject: '',
+    course: 'CSE-QC',
     semester: '1',
+    subject: '',
+    customSubject: '',
     resourceType: 'notes',
+    examType: 'mid-sem',
+    academicYear: '2025-26',
     classSection: '',
     fileUrl: '',
   });
+
   const [file, setFile] = useState(null);
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
+
+  // 1. Fetch available Courses on mount
+  useEffect(() => {
+    const fetchCourses = async () => {
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/courses`);
+        const data = await res.json();
+        if (data.success && data.courses?.length > 0) {
+          setCourses(data.courses);
+          // Auto-select user course or first course
+          const initialCourse =
+            data.courses.find((c) => c._id === user?.course || c.code === user?.courseCode) ||
+            data.courses.find((c) => c.code === 'CSE-QC') ||
+            data.courses[0];
+
+          setFormData((prev) => ({
+            ...prev,
+            course: initialCourse._id,
+            semester: user?.semester ? String(user.semester) : prev.semester,
+          }));
+        }
+      } catch (err) {
+        console.error('Failed to load courses:', err);
+      }
+    };
+    fetchCourses();
+  }, [user]);
+
+  // 2. Cascading fetch: Fetch subjects when course or semester changes
+  useEffect(() => {
+    const fetchSubjects = async () => {
+      if (!formData.course || !formData.semester) return;
+      setSubjectsLoading(true);
+      try {
+        const res = await fetch(
+          `${API_BASE_URL}/api/subjects?course=${encodeURIComponent(formData.course)}&semester=${formData.semester}`
+        );
+        const data = await res.json();
+        if (data.success) {
+          setSubjects(data.subjects || []);
+          if (data.subjects?.length > 0) {
+            setFormData((prev) => ({ ...prev, subject: data.subjects[0]._id }));
+          } else {
+            setFormData((prev) => ({ ...prev, subject: '' }));
+          }
+        }
+      } catch (err) {
+        console.error('Failed to fetch subjects:', err);
+      } finally {
+        setSubjectsLoading(false);
+      }
+    };
+
+    fetchSubjects();
+  }, [formData.course, formData.semester]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -77,9 +152,19 @@ export const UploadResource = () => {
       const data = new FormData();
       data.append('title', formData.title.trim());
       data.append('description', formData.description.trim());
-      data.append('subject', formData.subject.trim());
+      data.append('course', formData.course);
       data.append('semester', formData.semester);
+
+      const finalSubject = formData.subject === 'custom' ? formData.customSubject.trim() : formData.subject;
+      if (finalSubject) data.append('subject', finalSubject);
+
       data.append('resourceType', formData.resourceType);
+
+      if (formData.resourceType === 'question-paper') {
+        data.append('examType', formData.examType);
+        data.append('academicYear', formData.academicYear);
+      }
+
       if (formData.classSection.trim()) data.append('classSection', formData.classSection.trim());
       if (formData.fileUrl.trim()) data.append('fileUrl', formData.fileUrl.trim());
       if (file) data.append('file', file);
@@ -120,7 +205,7 @@ export const UploadResource = () => {
             Publish Study Material
           </h1>
           <p className="text-slate-400 text-sm mt-1">
-            Upload PDF notes, previous question papers, lab manuals, or documents (Up to 20MB).
+            Publish lecture notes, previous question papers (PYQs), lab manuals, or reference links.
           </p>
         </div>
 
@@ -159,21 +244,24 @@ export const UploadResource = () => {
             />
           </div>
 
-          {/* Subject & Semester */}
+          {/* 1. Cascading Course & Semester Selection */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">
-                Subject Name *
+                Degree Course / Branch *
               </label>
-              <input
-                type="text"
-                required
-                name="subject"
-                value={formData.subject}
+              <select
+                name="course"
+                value={formData.course}
                 onChange={handleChange}
-                placeholder="e.g. Database Management Systems"
-                className="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-800 text-white placeholder-slate-500 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              />
+                className="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-800 text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+              >
+                {courses.map((c) => (
+                  <option key={c._id || c.code} value={c._id || c.code}>
+                    [{c.code}] {c.name}
+                  </option>
+                ))}
+              </select>
             </div>
 
             <div>
@@ -184,7 +272,7 @@ export const UploadResource = () => {
                 name="semester"
                 value={formData.semester}
                 onChange={handleChange}
-                className="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-800 text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                className="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-800 text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
               >
                 {[1, 2, 3, 4, 5, 6, 7, 8].map((s) => (
                   <option key={s} value={s}>Semester {s}</option>
@@ -192,6 +280,44 @@ export const UploadResource = () => {
               </select>
             </div>
           </div>
+
+          {/* 2. Cascading Subject Dropdown */}
+          <div>
+            <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2 flex items-center justify-between">
+              <span>Subject (Curriculum-Linked) *</span>
+              {subjectsLoading && <span className="text-indigo-400 font-normal">Loading subjects...</span>}
+            </label>
+            <select
+              name="subject"
+              value={formData.subject}
+              onChange={handleChange}
+              className="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-800 text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+            >
+              {subjects.length === 0 && <option value="">No predefined subjects found for this semester</option>}
+              {subjects.map((sub) => (
+                <option key={sub._id} value={sub._id}>
+                  [{sub.code}] {sub.title} ({sub.category})
+                </option>
+              ))}
+              <option value="custom">✏️ Enter custom subject / Elective</option>
+            </select>
+          </div>
+
+          {formData.subject === 'custom' && (
+            <div>
+              <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">
+                Custom Subject Name or Code *
+              </label>
+              <input
+                type="text"
+                name="customSubject"
+                value={formData.customSubject}
+                onChange={handleChange}
+                placeholder="e.g. 26CSQ399 Project Phase-I"
+                className="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-800 text-white placeholder-slate-500 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+            </div>
+          )}
 
           {/* Resource Type & Section */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -203,10 +329,10 @@ export const UploadResource = () => {
                 name="resourceType"
                 value={formData.resourceType}
                 onChange={handleChange}
-                className="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-800 text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 capitalize"
+                className="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-800 text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
               >
                 <option value="notes">Lecture Notes</option>
-                <option value="question-paper">Previous Question Paper</option>
+                <option value="question-paper">Previous Year Question Paper (PYQ)</option>
                 <option value="lab-manual">Lab Manual</option>
                 <option value="link">Online Reference Link</option>
                 <option value="other">Other Material</option>
@@ -228,6 +354,48 @@ export const UploadResource = () => {
             </div>
           </div>
 
+          {/* Question Paper Specific Fields: Exam Type & Academic Year */}
+          {formData.resourceType === 'question-paper' && (
+            <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 space-y-4 animate-fadeIn">
+              <div className="text-xs font-bold text-amber-300 uppercase tracking-wider flex items-center gap-1.5">
+                <span>📝 Question Paper Exam Details</span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">
+                    Exam Type *
+                  </label>
+                  <select
+                    name="examType"
+                    value={formData.examType}
+                    onChange={handleChange}
+                    className="w-full px-4 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 cursor-pointer"
+                  >
+                    <option value="mid-sem">Mid-Sem (Mid-Term Exam)</option>
+                    <option value="end-sem">End-Sem (Final Exam)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">
+                    Academic Year *
+                  </label>
+                  <select
+                    name="academicYear"
+                    value={formData.academicYear}
+                    onChange={handleChange}
+                    className="w-full px-4 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 cursor-pointer"
+                  >
+                    {ACADEMIC_YEARS.map((yr) => (
+                      <option key={yr} value={yr}>{yr}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Description */}
           <div>
             <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">
@@ -238,7 +406,7 @@ export const UploadResource = () => {
               rows={3}
               value={formData.description}
               onChange={handleChange}
-              placeholder="Provide context or syllabus unit details for students..."
+              placeholder="Provide context, units covered, or exam remarks for students..."
               className="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-800 text-white placeholder-slate-500 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
             />
           </div>

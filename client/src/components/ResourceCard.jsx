@@ -8,12 +8,7 @@ const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
  * REUSABLE RESOURCE CARD COMPONENT (<ResourceCard />)
  * ============================================================================
  * 
- * Consistent Color Mapping:
- * - 'notes'           => Blue
- * - 'question-paper'  => Orange / Amber
- * - 'lab-manual'      => Green / Emerald
- * - 'link'            => Purple
- * - 'other'           => Cyan / Slate
+ * Supports Course -> Semester -> Subject hierarchy + Exam Type & Academic Year
  */
 
 export const getResourceTypeConfig = (type) => {
@@ -112,6 +107,12 @@ export const ResourceCard = ({
     }
   };
 
+  // Resolve subject and course labels
+  const courseCode = resource.course?.code || (typeof resource.course === 'string' ? resource.course : '');
+  const subjectTitle = resource.subject?.title || (typeof resource.subject === 'string' ? resource.subject : '');
+  const subjectCode = resource.subject?.code || '';
+  const subjectCategory = resource.subject?.category || '';
+
   return (
     <div
       onClick={handleCardClick}
@@ -120,8 +121,8 @@ export const ResourceCard = ({
       <div className="space-y-3.5">
         {/* Top Badges Header */}
         <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <div className={`w-7 h-7 rounded-lg ${config.iconBg} flex items-center justify-center`}>
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className={`w-7 h-7 rounded-lg ${config.iconBg} flex items-center justify-center flex-shrink-0`}>
               {config.icon}
             </div>
             <span
@@ -129,9 +130,14 @@ export const ResourceCard = ({
             >
               {config.label}
             </span>
+            {courseCode && (
+              <span className="px-2 py-0.5 text-[10px] font-bold uppercase rounded-md bg-indigo-500/15 text-indigo-300 border border-indigo-500/30 font-mono">
+                {courseCode}
+              </span>
+            )}
           </div>
 
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 flex-shrink-0">
             <span className="px-2 py-0.5 text-[11px] font-semibold rounded-md bg-slate-800 text-slate-300 border border-slate-700 font-mono">
               Sem {resource.semester}
             </span>
@@ -143,14 +149,40 @@ export const ResourceCard = ({
           </div>
         </div>
 
+        {/* Question Paper Exam Type & Academic Year Badges */}
+        {resource.resourceType === 'question-paper' && (resource.examType || resource.academicYear) && (
+          <div className="flex items-center gap-2 flex-wrap pt-0.5">
+            {resource.examType && (
+              <span className="px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider rounded-md bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                {resource.examType === 'mid-sem' ? '📝 Mid-Sem Exam' : '🎓 End-Sem Exam'}
+              </span>
+            )}
+            {resource.academicYear && (
+              <span className="px-2 py-0.5 text-[10px] font-bold rounded-md bg-slate-800 text-slate-300 border border-slate-700 font-mono">
+                Year {resource.academicYear}
+              </span>
+            )}
+          </div>
+        )}
+
         {/* Title and Subject */}
         <div>
           <h3 className="text-base sm:text-lg font-bold text-white group-hover:text-indigo-300 transition-colors line-clamp-2 leading-snug">
             {resource.title}
           </h3>
-          <div className="text-xs font-semibold text-indigo-400 font-mono mt-1">
-            {resource.subject}
-          </div>
+
+          {(subjectTitle || subjectCode) && (
+            <div className="flex items-center gap-2 text-xs font-semibold text-indigo-400 font-mono mt-1.5 flex-wrap">
+              {subjectCode && <span className="text-indigo-300 bg-indigo-950/80 px-1.5 py-0.5 rounded border border-indigo-500/30">{subjectCode}</span>}
+              <span className="truncate">{subjectTitle}</span>
+              {subjectCategory && (
+                <span className="text-[10px] text-slate-400 bg-slate-800/80 px-1.5 py-0.5 rounded border border-slate-700">
+                  {subjectCategory}
+                </span>
+              )}
+            </div>
+          )}
+
           {resource.description && (
             <p className="text-slate-400 text-xs mt-2 line-clamp-2 leading-relaxed">
               {resource.description}

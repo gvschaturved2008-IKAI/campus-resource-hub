@@ -13,7 +13,6 @@ export const ResourceDetail = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [downloading, setDownloading] = useState(false);
-  const [previewMode, setPreviewMode] = useState(true); // Default to preview
   const iframeRef = useRef(null);
 
   useEffect(() => {
@@ -44,7 +43,6 @@ export const ResourceDetail = () => {
   const handleDownload = () => {
     if (!resource) return;
     setDownloading(true);
-    // Directly navigate or trigger download endpoint
     const downloadUrl = `${API_BASE_URL}/api/resources/${id}/download`;
     
     // Update local counter optimistically
@@ -73,7 +71,6 @@ export const ResourceDetail = () => {
       resource.fileUrl.toLowerCase().endsWith('.pdf');
 
     if (isPdf) {
-      // For PDF files, open in dedicated printable window or print iframe
       const printWindow = window.open(resource.fileUrl, '_blank');
       if (printWindow) {
         printWindow.onload = () => {
@@ -81,7 +78,6 @@ export const ResourceDetail = () => {
         };
       }
     } else {
-      // For images or web documents, print the active iframe
       if (iframeRef.current && iframeRef.current.contentWindow) {
         iframeRef.current.contentWindow.focus();
         iframeRef.current.contentWindow.print();
@@ -134,15 +130,33 @@ export const ResourceDetail = () => {
     );
   }
 
+  const courseCode = resource.course?.code || (typeof resource.course === 'string' ? resource.course : '');
+  const courseName = resource.course?.name || '';
+  const subjectTitle = resource.subject?.title || (typeof resource.subject === 'string' ? resource.subject : '');
+  const subjectCode = resource.subject?.code || '';
+  const subjectCategory = resource.subject?.category || '';
+
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-8">
       {/* Breadcrumb Navigation */}
-      <div className="flex items-center gap-2 text-xs text-slate-400">
+      <div className="flex items-center gap-2 text-xs text-slate-400 flex-wrap">
         <Link to="/resources" className="hover:text-indigo-400 transition-colors">
           Resources
         </Link>
+        {courseCode && (
+          <>
+            <span>/</span>
+            <span className="text-slate-300 font-medium">{courseCode}</span>
+          </>
+        )}
         <span>/</span>
-        <span className="text-slate-300 font-medium">{resource.subject}</span>
+        <span className="text-slate-300 font-medium">Sem {resource.semester}</span>
+        {subjectTitle && (
+          <>
+            <span>/</span>
+            <span className="text-slate-300 font-medium">{subjectCode ? `${subjectCode}: ` : ''}{subjectTitle}</span>
+          </>
+        )}
         <span>/</span>
         <span className="text-slate-500 truncate max-w-[200px]">{resource.title}</span>
       </div>
@@ -155,12 +169,33 @@ export const ResourceDetail = () => {
               <span className="px-3 py-1 text-xs font-bold uppercase tracking-wider rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
                 {resource.resourceType.replace('-', ' ')}
               </span>
-              <span className="px-3 py-1 text-xs font-semibold rounded-full bg-slate-800 text-slate-300 border border-slate-700">
+
+              {courseCode && (
+                <span className="px-3 py-1 text-xs font-bold rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/30 font-mono">
+                  {courseCode} {courseName ? `• ${courseName}` : ''}
+                </span>
+              )}
+
+              <span className="px-3 py-1 text-xs font-semibold rounded-full bg-slate-800 text-slate-300 border border-slate-700 font-mono">
                 Semester {resource.semester}
               </span>
+
               {resource.classSection && (
                 <span className="px-3 py-1 text-xs font-semibold rounded-full bg-slate-800 text-slate-300 border border-slate-700">
                   Section {resource.classSection}
+                </span>
+              )}
+
+              {/* Question Paper Exam Type and Academic Year Badges */}
+              {resource.resourceType === 'question-paper' && resource.examType && (
+                <span className="px-3 py-1 text-xs font-bold uppercase rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                  {resource.examType === 'mid-sem' ? '📝 Mid-Sem Exam' : '🎓 End-Sem Exam'}
+                </span>
+              )}
+
+              {resource.resourceType === 'question-paper' && resource.academicYear && (
+                <span className="px-3 py-1 text-xs font-bold rounded-full bg-slate-800 text-slate-200 border border-slate-700 font-mono">
+                  Academic Year {resource.academicYear}
                 </span>
               )}
             </div>
@@ -169,9 +204,21 @@ export const ResourceDetail = () => {
               {resource.title}
             </h1>
 
-            <div className="text-sm font-semibold text-indigo-400 font-mono">
-              Subject: {resource.subject}
-            </div>
+            {(subjectTitle || subjectCode) && (
+              <div className="flex items-center gap-2 text-sm font-semibold text-indigo-400 font-mono">
+                {subjectCode && (
+                  <span className="px-2 py-0.5 rounded bg-indigo-950 text-indigo-300 border border-indigo-500/30">
+                    {subjectCode}
+                  </span>
+                )}
+                <span>{subjectTitle}</span>
+                {subjectCategory && (
+                  <span className="text-xs px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700 font-sans">
+                    Category: {subjectCategory}
+                  </span>
+                )}
+              </div>
+            )}
 
             {resource.description && (
               <p className="text-slate-300 text-sm leading-relaxed pt-1">
@@ -284,7 +331,6 @@ export const ResourceDetail = () => {
               />
             </div>
           ) : (
-            // DOCX / PPTX / Other formats: Use Google Docs Viewer fallback or direct download prompt
             <iframe
               ref={iframeRef}
               src={`https://docs.google.com/gview?url=${encodeURIComponent(resource.fileUrl)}&embedded=true`}

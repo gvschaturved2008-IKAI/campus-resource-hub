@@ -323,8 +323,9 @@ export const CRDashboard = () => {
                         >
                           {item.title}
                         </Link>
-                        <span className="text-[11px] text-indigo-400/80 font-mono block">
-                          {item.subject}
+                        <span className="text-[11px] text-indigo-400/80 font-mono block truncate">
+                          {item.subject?.code ? `${item.subject.code}: ` : ''}
+                          {item.subject?.title || (typeof item.subject === 'string' ? item.subject : 'General')}
                         </span>
                       </td>
                       <td className="py-3 px-3">

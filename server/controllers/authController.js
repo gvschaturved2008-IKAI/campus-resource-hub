@@ -1,6 +1,7 @@
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
+import Course from '../models/Course.js';
 import AuditLog from '../models/AuditLog.js';
 
 /**
@@ -24,6 +25,9 @@ const sanitizeUser = (user) => ({
   email: user.email,
   role: user.role,
   department: user.department,
+  course: user.course?._id || user.course || null,
+  courseCode: user.course?.code || user.courseCode || '',
+  courseDetails: user.course && typeof user.course === 'object' ? user.course : null,
   semester: user.semester,
   classSection: user.classSection,
   isApproved: user.isApproved,
@@ -37,7 +41,7 @@ const sanitizeUser = (user) => ({
  */
 export const signup = async (req, res) => {
   try {
-    const { name, email, password, role, department, semester, classSection } = req.body;
+    const { name, email, password, role, department, course, courseCode, semester, classSection } = req.body;
 
     // 1. Validate required fields
     if (!name || !email || !password) {
@@ -65,31 +69,54 @@ export const signup = async (req, res) => {
       });
     }
 
-    // 3. Hash password using bcrypt
+    // 3. Resolve course
+    let resolvedCourseId = null;
+    let finalCourseCode = courseCode || '';
+
+    if (course) {
+      const courseDoc = await Course.findById(course).catch(() => null);
+      if (courseDoc) {
+        resolvedCourseId = courseDoc._id;
+        finalCourseCode = courseDoc.code;
+      }
+    }
+    if (!resolvedCourseId && courseCode) {
+      const courseDoc = await Course.findOne({ code: courseCode.toUpperCase().trim() });
+      if (courseDoc) {
+        resolvedCourseId = courseDoc._id;
+        finalCourseCode = courseDoc.code;
+      }
+    }
+
+    // 4. Hash password using bcrypt
     const salt = await bcrypt.genSalt(10);
     const passwordHash = await bcrypt.hash(password, salt);
 
-    // 4. Determine user role & approval status
+    // 5. Determine user role & approval status
     const assignedRole = ['student', 'cr', 'lecturer'].includes(role) ? role : 'student';
     // 'cr' requires approval by a lecturer; students and lecturers are auto-approved
     const isApproved = assignedRole !== 'cr';
 
-    // 5. Create new user in database
+    // 6. Create new user in database
     const user = await User.create({
       name: name.trim(),
       email: normalizedEmail,
       passwordHash,
       role: assignedRole,
-      department: department ? department.trim() : undefined,
+      department: department ? department.trim() : (finalCourseCode || undefined),
+      course: resolvedCourseId,
+      courseCode: finalCourseCode,
       semester: semester ? Number(semester) : undefined,
       classSection: classSection ? classSection.trim() : undefined,
       isApproved,
     });
 
-    // 6. Generate 7-day JWT
+    const populatedUser = await User.findById(user._id).populate('course', 'code name totalSemesters');
+
+    // 7. Generate 7-day JWT
     const token = generateToken(user._id, user.role);
 
-    // 7. Return token and sanitized user profile
+    // 8. Return token and sanitized user profile
     return res.status(201).json({
       success: true,
       message:
@@ -97,7 +124,7 @@ export const signup = async (req, res) => {
           ? 'CR account created! Note: Your account is pending approval by a lecturer.'
           : 'Account created successfully.',
       token,
-      user: sanitizeUser(user),
+      user: sanitizeUser(populatedUser || user),
     });
   } catch (error) {
     console.error('Signup Error:', error);
@@ -128,7 +155,7 @@ export const login = async (req, res) => {
     const normalizedEmail = email.toLowerCase().trim();
 
     // 2. Find user in MongoDB
-    const user = await User.findOne({ email: normalizedEmail });
+    const user = await User.findOne({ email: normalizedEmail }).populate('course', 'code name totalSemesters');
     if (!user) {
       return res.status(401).json({
         success: false,
@@ -178,9 +205,11 @@ export const getMe = async (req, res) => {
       });
     }
 
+    const user = await User.findById(req.user._id).populate('course', 'code name totalSemesters');
+
     return res.status(200).json({
       success: true,
-      user: sanitizeUser(req.user),
+      user: sanitizeUser(user || req.user),
     });
   } catch (error) {
     console.error('GetMe Error:', error);
@@ -201,7 +230,10 @@ export const getPendingCRs = async (req, res) => {
     const pendingCRs = await User.find({
       role: 'cr',
       isApproved: false,
-    }).select('-passwordHash').sort({ createdAt: -1 });
+    })
+      .populate('course', 'code name totalSemesters')
+      .select('-passwordHash')
+      .sort({ createdAt: -1 });
 
     return res.status(200).json({
       success: true,
@@ -226,7 +258,7 @@ export const approveCR = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const user = await User.findById(id);
+    const user = await User.findById(id).populate('course', 'code name');
     if (!user) {
       return res.status(404).json({
         success: false,
@@ -245,7 +277,7 @@ export const approveCR = async (req, res) => {
         userId: req.user?._id || null,
         userName: req.user?.name || 'Lecturer',
         userRole: req.user?.role || 'lecturer',
-        details: `Approved ${user.name} (${user.department} Sem ${user.semester} Sec ${user.classSection}) as CR`,
+        details: `Approved ${user.name} (${user.course?.code || user.department} Sem ${user.semester} Sec ${user.classSection}) as CR`,
         timestamp: new Date(),
       });
     } catch (auditErr) {

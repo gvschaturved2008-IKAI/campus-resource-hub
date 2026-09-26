@@ -12,16 +12,20 @@ export const validateCreateResource = [
     .isLength({ min: 3, max: 200 })
     .withMessage('Title must be between 3 and 200 characters.'),
 
-  body('subject')
+  body('course')
     .trim()
     .notEmpty()
-    .withMessage('Subject name is required.'),
+    .withMessage('Course is required.'),
 
   body('semester')
     .notEmpty()
     .withMessage('Semester is required.')
     .isInt({ min: 1, max: 12 })
     .withMessage('Semester must be an integer between 1 and 12.'),
+
+  body('subject')
+    .optional({ checkFalsy: true })
+    .trim(),
 
   body('resourceType')
     .notEmpty()
@@ -30,6 +34,15 @@ export const validateCreateResource = [
     .withMessage(
       "Resource type must be one of: 'notes', 'question-paper', 'lab-manual', 'link', 'other'."
     ),
+
+  body('examType')
+    .optional({ checkFalsy: true })
+    .isIn(['mid-sem', 'end-sem', null, ''])
+    .withMessage("Exam type must be 'mid-sem' or 'end-sem'."),
+
+  body('academicYear')
+    .optional()
+    .trim(),
 
   body('description')
     .optional()
@@ -58,10 +71,18 @@ export const validateUpdateResource = [
     .isLength({ min: 3, max: 200 })
     .withMessage('Title must be between 3 and 200 characters.'),
 
+  body('course')
+    .optional()
+    .trim(),
+
   body('semester')
     .optional()
     .isInt({ min: 1, max: 12 })
     .withMessage('Semester must be an integer between 1 and 12.'),
+
+  body('subject')
+    .optional({ checkFalsy: true })
+    .trim(),
 
   body('resourceType')
     .optional()
@@ -69,6 +90,15 @@ export const validateUpdateResource = [
     .withMessage(
       "Resource type must be one of: 'notes', 'question-paper', 'lab-manual', 'link', 'other'."
     ),
+
+  body('examType')
+    .optional({ checkFalsy: true })
+    .isIn(['mid-sem', 'end-sem', null, ''])
+    .withMessage("Exam type must be 'mid-sem' or 'end-sem'."),
+
+  body('academicYear')
+    .optional()
+    .trim(),
 
   validate,
 ];

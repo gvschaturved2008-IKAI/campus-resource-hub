@@ -1,6 +1,8 @@
 import mongoose from 'mongoose';
 import Resource from '../models/Resource.js';
 import AuditLog from '../models/AuditLog.js';
+import Course from '../models/Course.js';
+import Subject from '../models/Subject.js';
 import { uploadBufferToCloudinary } from '../config/cloudinary.js';
 
 /**
@@ -24,6 +26,41 @@ const logAudit = async ({ action, resourceId, resourceTitle, user, details }) =>
 };
 
 /**
+ * Helper to resolve Course input to a Course document / ObjectId
+ */
+const resolveCourseId = async (courseInput) => {
+  if (!courseInput) return null;
+  if (mongoose.Types.ObjectId.isValid(courseInput)) {
+    const course = await Course.findById(courseInput);
+    if (course) return course._id;
+  }
+  // Try finding by code
+  const course = await Course.findOne({ code: String(courseInput).toUpperCase().trim() });
+  return course ? course._id : null;
+};
+
+/**
+ * Helper to resolve Subject input to a Subject document / ObjectId
+ */
+const resolveSubjectId = async (subjectInput, courseId, semester) => {
+  if (!subjectInput) return null;
+  if (mongoose.Types.ObjectId.isValid(subjectInput)) {
+    const subject = await Subject.findById(subjectInput);
+    if (subject) return subject._id;
+  }
+  // Try finding by code or title in the course/semester
+  const query = {};
+  if (courseId) query.course = courseId;
+  if (semester) query.semester = Number(semester);
+  query.$or = [
+    { code: String(subjectInput).toUpperCase().trim() },
+    { title: String(subjectInput).trim() },
+  ];
+  const subject = await Subject.findOne(query);
+  return subject ? subject._id : null;
+};
+
+/**
  * @desc    Create a new study resource (Uploads buffer to Cloudinary & saves metadata)
  * @route   POST /api/resources
  * @access  Private (Lecturers & approved CRs only)
@@ -33,12 +70,31 @@ export const createResource = async (req, res) => {
     const {
       title,
       description,
-      subject,
+      course: rawCourse,
       semester,
+      subject: rawSubject,
       resourceType,
+      examType: rawExamType,
+      academicYear: rawAcademicYear,
       classSection,
       fileUrl: customUrl,
     } = req.body;
+
+    // 1. Resolve Course
+    const courseId = await resolveCourseId(rawCourse);
+    if (!courseId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Valid Course is required. Please select a valid course.',
+      });
+    }
+
+    // 2. Resolve optional Subject
+    const subjectId = await resolveSubjectId(rawSubject, courseId, semester);
+
+    // 3. Process examType and academicYear for question-paper
+    const examType = resourceType === 'question-paper' && rawExamType ? rawExamType : null;
+    const academicYear = rawAcademicYear ? rawAcademicYear.trim() : '';
 
     let finalFileUrl = customUrl;
     let originalFilename = '';
@@ -47,7 +103,7 @@ export const createResource = async (req, res) => {
     let cloudinaryPublicId = '';
     let fileType = 'pdf';
 
-    // 1. Process uploaded file via Cloudinary stream upload
+    // 4. Process uploaded file via Cloudinary stream upload
     if (req.file) {
       originalFilename = req.file.originalname;
       fileMimeType = req.file.mimetype;
@@ -73,13 +129,16 @@ export const createResource = async (req, res) => {
       });
     }
 
-    // 2. Persist Resource document in MongoDB
+    // 5. Persist Resource document in MongoDB
     const resource = await Resource.create({
       title: title.trim(),
       description: description ? description.trim() : '',
-      subject: subject.trim(),
+      course: courseId,
       semester: Number(semester),
+      subject: subjectId || null,
       resourceType,
+      examType,
+      academicYear,
       classSection: classSection ? classSection.trim() : undefined,
       fileUrl: finalFileUrl,
       fileType,
@@ -91,10 +150,15 @@ export const createResource = async (req, res) => {
       downloadCount: 0,
     });
 
-    const populatedResource = await Resource.findById(resource._id).populate(
-      'uploadedBy',
-      'name email role department'
-    );
+    const populatedResource = await Resource.findById(resource._id)
+      .populate('course', 'code name totalSemesters')
+      .populate('subject', 'code title category semester')
+      .populate('uploadedBy', 'name email role department');
+
+    const subjectDisplay = populatedResource.subject
+      ? `${populatedResource.subject.code} ${populatedResource.subject.title}`
+      : 'General Resource';
+    const courseDisplay = populatedResource.course?.code || 'Course';
 
     // Record Audit Log
     logAudit({
@@ -102,12 +166,12 @@ export const createResource = async (req, res) => {
       resourceId: resource._id,
       resourceTitle: resource.title,
       user: req.user,
-      details: `Uploaded ${resourceType} for ${subject} (Sem ${semester})`,
+      details: `Uploaded ${resourceType} for ${subjectDisplay} (${courseDisplay} Sem ${semester})`,
     });
 
     return res.status(201).json({
       success: true,
-      message: 'Resource published and uploaded to Cloudinary successfully.',
+      message: 'Resource published and uploaded successfully.',
       resource: populatedResource,
     });
   } catch (error) {
@@ -127,9 +191,12 @@ export const createResource = async (req, res) => {
 export const getResources = async (req, res) => {
   try {
     const {
-      subject,
+      course,
       semester,
+      subject,
       resourceType,
+      examType,
+      academicYear,
       classSection,
       search,
       sort = 'newest',
@@ -139,29 +206,88 @@ export const getResources = async (req, res) => {
 
     const query = {};
 
-    if (subject) {
-      query.subject = { $regex: subject, $options: 'i' };
+    // 1. Course Filter
+    if (course) {
+      if (mongoose.Types.ObjectId.isValid(course)) {
+        query.course = course;
+      } else {
+        const foundCourse = await Course.findOne({ code: course.toUpperCase().trim() });
+        if (foundCourse) {
+          query.course = foundCourse._id;
+        } else {
+          return res.status(200).json({
+            success: true,
+            count: 0,
+            total: 0,
+            page: Number(page) || 1,
+            totalPages: 1,
+            resources: [],
+          });
+        }
+      }
     }
 
+    // 2. Semester Filter
     if (semester) {
       query.semester = Number(semester);
     }
 
+    // 3. Subject Filter
+    if (subject) {
+      if (mongoose.Types.ObjectId.isValid(subject)) {
+        query.subject = subject;
+      } else {
+        const matchingSubjects = await Subject.find({
+          $or: [
+            { code: { $regex: subject.trim(), $options: 'i' } },
+            { title: { $regex: subject.trim(), $options: 'i' } },
+          ],
+        }).select('_id');
+        const subjectIds = matchingSubjects.map((s) => s._id);
+        query.subject = { $in: subjectIds };
+      }
+    }
+
+    // 4. Resource Type & Exam Filter
     if (resourceType) {
       query.resourceType = resourceType;
     }
 
-    if (classSection) {
-      query.classSection = { $regex: `^${classSection}$`, $options: 'i' };
+    if (examType) {
+      query.examType = examType;
     }
 
+    if (academicYear) {
+      query.academicYear = { $regex: `^${academicYear.trim()}$`, $options: 'i' };
+    }
+
+    if (classSection) {
+      query.classSection = { $regex: `^${classSection.trim()}$`, $options: 'i' };
+    }
+
+    // 5. Search Text Filter
     if (search && search.trim()) {
       const searchRegex = { $regex: search.trim(), $options: 'i' };
+
+      // Find any subjects matching search text
+      const matchingSubjects = await Subject.find({
+        $or: [{ title: searchRegex }, { code: searchRegex }],
+      }).select('_id');
+      const matchingSubjectIds = matchingSubjects.map((s) => s._id);
+
+      // Find any courses matching search text
+      const matchingCourses = await Course.find({
+        $or: [{ name: searchRegex }, { code: searchRegex }],
+      }).select('_id');
+      const matchingCourseIds = matchingCourses.map((c) => c._id);
+
       query.$or = [
         { title: searchRegex },
         { description: searchRegex },
-        { subject: searchRegex },
         { originalFilename: searchRegex },
+        { academicYear: searchRegex },
+        ...(matchingSubjectIds.length > 0 ? [{ subject: { $in: matchingSubjectIds } }] : []),
+        ...(matchingCourseIds.length > 0 ? [{ course: { $in: matchingCourseIds } }] : []),
       ];
     }
 
@@ -183,6 +309,8 @@ export const getResources = async (req, res) => {
 
     const [resources, total] = await Promise.all([
       Resource.find(query)
+        .populate('course', 'code name totalSemesters')
+        .populate('subject', 'code title category semester')
         .populate('uploadedBy', 'name email role department')
         .sort(sortOptions)
         .skip(skip)
@@ -217,26 +345,37 @@ export const getResources = async (req, res) => {
  */
 export const getFilterMeta = async (req, res) => {
   try {
-    const [subjects, semesters, resourceTypes, classSections] = await Promise.all([
-      Resource.distinct('subject'),
+    const [courses, dbSemesters, resourceTypes, classSections, dbAcademicYears] = await Promise.all([
+      Course.find({}).sort({ code: 1 }).lean(),
       Resource.distinct('semester'),
       Resource.distinct('resourceType'),
       Resource.distinct('classSection'),
+      Resource.distinct('academicYear'),
     ]);
 
-    const sortedSubjects = subjects.filter(Boolean).sort((a, b) => a.localeCompare(b));
-    const sortedSemesters = semesters
-      .filter((s) => s !== null && s !== undefined)
-      .sort((a, b) => a - b);
-    const sortedTypes = resourceTypes.filter(Boolean);
+    // Ensure 1-8 are always available for semesters
+    const semesterSet = new Set([1, 2, 3, 4, 5, 6, 7, 8, ...dbSemesters.filter(Boolean)]);
+    const sortedSemesters = Array.from(semesterSet).sort((a, b) => a - b);
+
+    const validResourceTypes = resourceTypes.length > 0
+      ? resourceTypes.filter(Boolean)
+      : ['notes', 'question-paper', 'lab-manual', 'link', 'other'];
+
     const sortedSections = classSections.filter(Boolean).sort((a, b) => a.localeCompare(b));
+
+    // Common standard academic years
+    const standardYears = ['2025-26', '2024-25', '2023-24', '2022-23'];
+    const academicYearsSet = new Set([...standardYears, ...dbAcademicYears.filter(Boolean)]);
+    const sortedAcademicYears = Array.from(academicYearsSet).sort().reverse();
 
     return res.status(200).json({
       success: true,
       filters: {
-        subjects: sortedSubjects,
+        courses,
         semesters: sortedSemesters,
-        resourceTypes: sortedTypes,
+        resourceTypes: validResourceTypes,
+        examTypes: ['mid-sem', 'end-sem'],
+        academicYears: sortedAcademicYears,
         classSections: sortedSections,
       },
     });
@@ -257,6 +396,8 @@ export const getFilterMeta = async (req, res) => {
 export const getTopWeeklyDownloads = async (req, res) => {
   try {
     const topResources = await Resource.find({})
+      .populate('course', 'code name totalSemesters')
+      .populate('subject', 'code title category semester')
       .populate('uploadedBy', 'name email role department')
       .sort({ downloadCount: -1, createdAt: -1 })
       .limit(5)
@@ -318,10 +459,10 @@ export const getResourceById = async (req, res) => {
       });
     }
 
-    const resource = await Resource.findById(id).populate(
-      'uploadedBy',
-      'name email role department'
-    );
+    const resource = await Resource.findById(id)
+      .populate('course', 'code name totalSemesters')
+      .populate('subject', 'code title category semester')
+      .populate('uploadedBy', 'name email role department');
 
     if (!resource) {
       return res.status(404).json({
@@ -364,7 +505,9 @@ export const downloadResource = async (req, res) => {
       id,
       { $inc: { downloadCount: 1 } },
       { new: true }
-    );
+    )
+      .populate('course', 'code name')
+      .populate('subject', 'code title');
 
     if (!resource) {
       return res.status(404).json({
@@ -373,13 +516,15 @@ export const downloadResource = async (req, res) => {
       });
     }
 
+    const subjectLabel = resource.subject?.code || resource.course?.code || '';
+
     // Record Audit Log for Download
     logAudit({
       action: 'download',
       resourceId: resource._id,
       resourceTitle: resource.title,
       user: req.user || null,
-      details: `Downloaded ${resource.title} (${resource.subject})`,
+      details: `Downloaded ${resource.title} (${subjectLabel})`,
     });
 
     const filename = resource.originalFilename || `${resource.title.replace(/\s+/g, '_')}.${resource.fileType || 'pdf'}`;
@@ -443,9 +588,12 @@ export const updateResource = async (req, res) => {
     const {
       title,
       description,
-      subject,
+      course: rawCourse,
       semester,
+      subject: rawSubject,
       resourceType,
+      examType: rawExamType,
+      academicYear: rawAcademicYear,
       classSection,
       fileUrl,
       fileType,
@@ -453,19 +601,48 @@ export const updateResource = async (req, res) => {
 
     if (title !== undefined) resource.title = title.trim();
     if (description !== undefined) resource.description = description.trim();
-    if (subject !== undefined) resource.subject = subject.trim();
+
+    if (rawCourse !== undefined) {
+      const courseId = await resolveCourseId(rawCourse);
+      if (courseId) resource.course = courseId;
+    }
+
     if (semester !== undefined) resource.semester = Number(semester);
-    if (resourceType !== undefined) resource.resourceType = resourceType;
+
+    if (rawSubject !== undefined) {
+      if (!rawSubject) {
+        resource.subject = null;
+      } else {
+        const subjectId = await resolveSubjectId(rawSubject, resource.course, resource.semester);
+        resource.subject = subjectId || null;
+      }
+    }
+
+    if (resourceType !== undefined) {
+      resource.resourceType = resourceType;
+      if (resourceType !== 'question-paper') {
+        resource.examType = null;
+      }
+    }
+
+    if (rawExamType !== undefined) {
+      resource.examType = resource.resourceType === 'question-paper' && rawExamType ? rawExamType : null;
+    }
+
+    if (rawAcademicYear !== undefined) {
+      resource.academicYear = rawAcademicYear ? rawAcademicYear.trim() : '';
+    }
+
     if (classSection !== undefined) resource.classSection = classSection.trim();
     if (fileUrl !== undefined) resource.fileUrl = fileUrl.trim();
     if (fileType !== undefined) resource.fileType = fileType.trim();
 
     await resource.save();
 
-    const updatedResource = await Resource.findById(id).populate(
-      'uploadedBy',
-      'name email role department'
-    );
+    const updatedResource = await Resource.findById(id)
+      .populate('course', 'code name totalSemesters')
+      .populate('subject', 'code title category semester')
+      .populate('uploadedBy', 'name email role department');
 
     logAudit({
       action: 'update',
