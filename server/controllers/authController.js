@@ -170,7 +170,6 @@ export const login = async (req, res) => {
  */
 export const getMe = async (req, res) => {
   try {
-    // req.user is attached by the `protect` middleware
     if (!req.user) {
       return res.status(401).json({
         success: false,
@@ -192,6 +191,32 @@ export const getMe = async (req, res) => {
 };
 
 /**
+ * @desc    Get list of pending Class Representative applications
+ * @route   GET /api/auth/pending-crs
+ * @access  Private (Lecturers only)
+ */
+export const getPendingCRs = async (req, res) => {
+  try {
+    const pendingCRs = await User.find({
+      role: 'cr',
+      isApproved: false,
+    }).select('-passwordHash').sort({ createdAt: -1 });
+
+    return res.status(200).json({
+      success: true,
+      count: pendingCRs.length,
+      pendingCRs: pendingCRs.map(sanitizeUser),
+    });
+  } catch (error) {
+    console.error('Get Pending CRs Error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Server error fetching pending CRs.',
+    });
+  }
+};
+
+/**
  * @desc    Approve a Class Representative (CR)
  * @route   PATCH /api/auth/approve-cr/:id
  * @access  Private (Lecturers only)
@@ -208,13 +233,7 @@ export const approveCR = async (req, res) => {
       });
     }
 
-    if (user.role !== 'cr') {
-      return res.status(400).json({
-        success: false,
-        message: 'Only Class Representative (CR) accounts require approval.',
-      });
-    }
-
+    user.role = 'cr';
     user.isApproved = true;
     await user.save();
 
@@ -232,9 +251,46 @@ export const approveCR = async (req, res) => {
   }
 };
 
+/**
+ * @desc    Reject a Class Representative (CR) - changes role to student
+ * @route   PATCH /api/auth/reject-cr/:id
+ * @access  Private (Lecturers only)
+ */
+export const rejectCR = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const user = await User.findById(id);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found.',
+      });
+    }
+
+    user.role = 'student';
+    user.isApproved = true;
+    await user.save();
+
+    return res.status(200).json({
+      success: true,
+      message: `CR application for ${user.name} was rejected and role updated to Student.`,
+      user: sanitizeUser(user),
+    });
+  } catch (error) {
+    console.error('Reject CR Error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Server error rejecting CR.',
+    });
+  }
+};
+
 export default {
   signup,
   login,
   getMe,
+  getPendingCRs,
   approveCR,
+  rejectCR,
 };
