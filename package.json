@@ -16,7 +16,7 @@
     "seed": "node server/seed/seedQC.js"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=20"
   },
   "keywords": [
     "railway",
