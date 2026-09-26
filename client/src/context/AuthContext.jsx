@@ -19,7 +19,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 const AuthContext = createContext(null);
 
 const TOKEN_KEY = 'crh_auth_token';
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+const API_BASE_URL = import.meta.env.VITE_API_URL || (import.meta.env.PROD ? '' : 'http://localhost:5000');
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);

@@ -1,0 +1,31 @@
+{
+  "name": "campus-resource-hub",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Campus Resource Hub & Academic Portal for Engineering Students",
+  "main": "server/server.js",
+  "type": "module",
+  "scripts": {
+    "build:client": "npm --prefix client install && npm --prefix client run build",
+    "build:server": "npm --prefix server install",
+    "build": "npm --prefix client install && npm --prefix client run build && npm --prefix server install",
+    "start": "node server/server.js",
+    "server": "npm --prefix server start",
+    "client": "npm --prefix client run dev",
+    "dev": "npm --prefix server run dev",
+    "seed": "node server/seed/seedQC.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "railway",
+    "express",
+    "react",
+    "socketio",
+    "mongodb",
+    "campus-resource-hub"
+  ],
+  "author": "",
+  "license": "ISC"
+}
